@@ -1,0 +1,6 @@
+{
+  "video_prompt": "A close-up shot of a man's eye with a determined and resolute expression, set in a dimly lit abandoned factory. Dust particles float in the air, and the eye reflects a faint golden glow. The camera slowly zooms in on the iris, capturing the intense focus and unwavering will.",
+  "negative_prompt": "blurry, low quality, distorted, extra limbs, blood, gore, violence, cartoon",
+  "duration": 5,
+  "ratio": "16:9"
+}

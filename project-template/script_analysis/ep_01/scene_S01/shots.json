@@ -1,0 +1,14 @@
+[
+  {
+    "shot_id": "S01_SH01",
+    "type": "全景",
+    "action": "林浩走进办公室",
+    "characters": ["林浩"]
+  },
+  {
+    "shot_id": "S01_SH02",
+    "type": "特写",
+    "action": "苏晴微笑",
+    "characters": ["苏晴"]
+  }
+]

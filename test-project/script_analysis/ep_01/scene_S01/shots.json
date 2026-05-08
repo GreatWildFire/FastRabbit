@@ -1,0 +1,88 @@
+[
+  {
+    "shot_id": "S01_SH01",
+    "type": "全景",
+    "action": "破败街道上，无数人形诡异游荡，年轻男人叶凡手持利剑游走斩杀，一剑一个诡异死亡",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S01_SH02",
+    "type": "中景",
+    "action": "身材傲人的御姐夜不语和青春美少女白灵儿走到叶凡身边，三人一同斩杀诡异",
+    "characters": [
+      "叶凡",
+      "夜不语",
+      "白灵儿"
+    ]
+  },
+  {
+    "shot_id": "S01_SH03",
+    "type": "近景",
+    "action": "叶凡一边斩杀一边口述旁白，介绍背景",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S01_SH04",
+    "type": "插入画面",
+    "action": "如山岳般庞大的诡异之神立于城市之上，无数诡异追杀人类",
+    "characters": []
+  },
+  {
+    "shot_id": "S01_SH05",
+    "type": "插入画面",
+    "action": "无数异能者手中浮现火球、风刃、土枪，与诡异厮杀",
+    "characters": []
+  },
+  {
+    "shot_id": "S01_SH06",
+    "type": "近景",
+    "action": "叶凡走到诡异群前，摸了摸胸口的指环吊坠，吊坠发出金色光芒",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S01_SH07",
+    "type": "特写",
+    "action": "吊坠发出金色光芒",
+    "characters": []
+  },
+  {
+    "shot_id": "S01_SH08",
+    "type": "全景",
+    "action": "叶凡身后凭空出现坦克大炮",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S01_SH09",
+    "type": "中景",
+    "action": "叶凡一声大喊'开炮'",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S01_SH10",
+    "type": "特写",
+    "action": "炮弹打出",
+    "characters": []
+  },
+  {
+    "shot_id": "S01_SH11",
+    "type": "跟拍",
+    "action": "画面快速倒退缩放，从街道一直缩放到地球漂浮在宇宙中",
+    "characters": []
+  },
+  {
+    "shot_id": "S01_SH12",
+    "type": "全景",
+    "action": "地球无限放大，出现城市街道画面",
+    "characters": []
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "shot_id": "S02_SH01",
+    "type": "全景",
+    "action": "无数诡异在街道上撕咬着人类尸体，一个诡异抬头，表情狰狞",
+    "characters": []
+  },
+  {
+    "shot_id": "S02_SH02",
+    "type": "特写",
+    "action": "诡异血红的眼睛",
+    "characters": []
+  },
+  {
+    "shot_id": "S02_SH03",
+    "type": "特写",
+    "action": "叶凡坚毅眼神的眼部",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH04",
+    "type": "中景",
+    "action": "镜头拉远，展现叶凡浑身是血和伤口，扶着墙走在一处废旧工厂内",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH05",
+    "type": "中景",
+    "action": "叶凡走到一个物资箱前，停下",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH06",
+    "type": "近景",
+    "action": "叶凡打开物资箱，表情一变，箱子里放着一块大金砖",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH07",
+    "type": "特写",
+    "action": "金砖在箱子里",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH08",
+    "type": "中景",
+    "action": "叶凡叹气，拿起金砖",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH09",
+    "type": "中景",
+    "action": "叶凡坐在地板上，叹气",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH10",
+    "type": "近景",
+    "action": "叶凡说“算了，先睡觉吧…”",
+    "characters": [
+      "叶凡"
+    ]
+  },
+  {
+    "shot_id": "S02_SH11",
+    "type": "全景",
+    "action": "叶凡拿出金砖垫在地板上，当作枕头，靠在金砖上沉睡过去",
+    "characters": [
+      "叶凡"
+    ]
+  }
+]

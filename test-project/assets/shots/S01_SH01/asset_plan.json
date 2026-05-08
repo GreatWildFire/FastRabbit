@@ -1,0 +1,18 @@
+{
+  "episode_id": "EP01",
+  "scene_id": "S01",
+  "shot_id": "S01_SH01",
+  "references": [
+    {
+      "type": "scene_image",
+      "value": "/media/evans/DATA3/evans.shi/drama/test-project/assets/scenes/base/EP01_S01.png"
+    },
+    {
+      "type": "character_image",
+      "value": "/media/evans/DATA3/evans.shi/drama/test-project/assets/characters/base/叶凡.png"
+    }
+  ],
+  "ratio": "16:9",
+  "duration": 5,
+  "use_last_frame_chain": false
+}

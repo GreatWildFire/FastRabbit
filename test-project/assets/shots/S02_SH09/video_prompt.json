@@ -1,0 +1,6 @@
+{
+  "video_prompt": "In a dark, abandoned factory, Ye Fan sits on the dusty floor, letting out a heavy sigh. Mid shot, dim lighting, gritty texture, debris scattered around. His expression is weary and defeated.",
+  "negative_prompt": "blurry, low quality, distorted, extra people, blood, gore, violence, horror, scary",
+  "duration": 5,
+  "ratio": "16:9"
+}

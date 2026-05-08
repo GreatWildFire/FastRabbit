@@ -1,0 +1,7 @@
+{
+    "shot_id": "S01_SH01",
+    "scene_ref": "assets/scenes/by_scene/S01_setting.png",
+    "character_refs": [
+      {"char_id": "林浩", "image": "assets/characters/by_scene/S01/林浩_S01.png"}
+    ]
+  }

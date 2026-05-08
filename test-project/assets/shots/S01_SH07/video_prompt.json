@@ -1,0 +1,6 @@
+{
+  "video_prompt": "Close-up shot of a necklace pendant emitting a brilliant golden light. The pendant glows intensely, with rays of light spreading outward. The background is a dark and ruined street, but the focus is on the pendant's radiant glow. Cinematic lighting, high contrast, sparkles and lens flare.",
+  "negative_prompt": "blurry, low quality, distorted, violent, gore, blood, scary, nudity, text, watermark, logo",
+  "duration": 5,
+  "ratio": "16:9"
+}

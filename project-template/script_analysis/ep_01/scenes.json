@@ -1,0 +1,16 @@
+[
+  {
+    "scene_id": "S01",
+    "location": "办公室",
+    "time": "上午9点",
+    "characters": ["林浩", "苏晴"],
+    "description": "林浩入职报到"
+  },
+  {
+    "scene_id": "S02",
+    "location": "茶水间",
+    "time": "上午10点",
+    "characters": ["林浩", "苏晴"],
+    "description": "两人偶遇"
+  }
+]

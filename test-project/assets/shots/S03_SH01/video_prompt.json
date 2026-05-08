@@ -1,0 +1,6 @@
+{
+  "video_prompt": "全景镜头，叶凡推开出租屋的木门走进房间，右手拿着一本古朴的武道入门基本功法和一个小瓷瓶（初级武者天赋灵液），室内是简陋的出租屋，有床和桌子，光线柔和，日间气氛，动作自然流畅。",
+  "negative_prompt": "nsfw, violence, gore, bad quality, blurry, distorted, text, watermark, low resolution",
+  "duration": 5,
+  "ratio": "16:9"
+}
