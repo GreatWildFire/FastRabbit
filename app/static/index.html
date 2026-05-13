@@ -161,25 +161,104 @@ async function renderOverview() {
   const res = await fetch(`${API}/projects/${currentProject}`).then(r => r.json());
   if (!res.success) { document.getElementById('mainContent').innerHTML = `<div class="alert alert-danger">${res.error}</div>`; return; }
   const d = res.data;
-  let chars = (d.character_names || []).map(n => `<span class="badge bg-info me-1">${n}</span>`).join('') || '<span class="text-muted">无</span>';
   let eps = (d.episodes || []).map(e => `
-    <tr>
-      <td>${e.episode_id || ''}</td>
-      <td>${e.title || ''}</td>
-      <td>${e.scene_count || 0} 场</td>
-    </tr>`).join('');
+    <tr><td>${e.episode_id || ''}</td><td>${e.title || ''}</td><td>${e.scene_count || 0} 场</td></tr>`).join('');
   document.getElementById('mainContent').innerHTML = `
     <h4>${d.name || ''} <small class="text-muted">${d.status || ''}</small></h4>
     <div class="row g-3 mt-2">
       <div class="col-md-3"><div class="card text-bg-primary"><div class="card-body"><h6>总集数</h6><h3>${d.total_episodes || 0}</h3></div></div></div>
-      <div class="col-md-3"><div class="card text-bg-success"><div class="card-body"><h6>角色数</h6><h3>${d.character_count || 0}</h3></div></div></div>
-      <div class="col-md-3"><div class="card text-bg-info"><div class="card-body"><h6>场景图</h6><h3>${d.scene_image_count || 0}</h3></div></div></div>
-      <div class="col-md-3"><div class="card text-bg-warning"><div class="card-body"><h6>镜头视频</h6><h3>${d.shot_video_count || 0}</h3></div></div></div>
+      <div class="col-md-3"><div class="card text-bg-success" style="cursor:pointer" onclick="loadCharacterGallery()"><div class="card-body"><h6>角色</h6><h3>${d.character_count || 0}</h3><small>点击查看详情</small></div></div></div>
+      <div class="col-md-3"><div class="card text-bg-info" style="cursor:pointer" onclick="loadSceneGallery()"><div class="card-body"><h6>场景图</h6><h3>${d.scene_image_count || 0}</h3><small>点击查看详情</small></div></div></div>
+      <div class="col-md-3"><div class="card text-bg-warning" style="cursor:pointer" onclick="loadShotGallery()"><div class="card-body"><h6>镜头视频</h6><h3>${d.shot_video_count || 0}</h3><small>点击查看详情</small></div></div></div>
     </div>
-    <h6 class="mt-4">角色列表</h6><p>${chars}</p>
+    <div id="galleryArea" class="mt-3"></div>
     <h6 class="mt-3">各集状态</h6>
     <table class="table table-sm"><thead><tr><th>ID</th><th>标题</th><th>场景</th></tr></thead><tbody>${eps}</tbody></table>
     ${d.created_at ? `<small class="text-muted">创建于 ${d.created_at} / 更新于 ${d.updated_at}</small>` : ''}`;
+}
+
+// ── 角色画廊 ──
+async function loadCharacterGallery() {
+  const area = document.getElementById('galleryArea');
+  area.innerHTML = '<div class="text-center py-3"><div class="spinner-border"></div></div>';
+  const res = await fetch(`${API}/projects/${currentProject}/assets/characters`).then(r => r.json());
+  if (!res.success || !res.data.length) { area.innerHTML = '<div class="alert alert-warning">暂无角色数据</div>'; return; }
+
+  let cards = '';
+  res.data.forEach(c => {
+    cards += `<div class="col-lg-3 col-md-4 col-sm-6 mb-3">
+      <div class="card h-100">
+        ${c.has_image ? `<img src="${c.image_url}" class="card-img-top" style="height:220px;object-fit:cover" alt="${c.name}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22220%22><rect fill=%22%23ddd%22 width=%22200%22 height=%22220%22/><text x=%22100%22 y=%22110%22 text-anchor=%22middle%22 fill=%22%23999%22>无图片</text></svg>'">`
+         : `<div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height:220px"><span class="text-muted">暂无角色图</span></div>`}
+        <div class="card-body py-2">
+          <h6 class="card-title mb-1">${c.name}</h6>
+          <small class="text-muted">${c.gender || ''} · ${c.age || ''}岁</small>
+          <p class="card-text mt-1" style="font-size:12px">${c.description || ''}</p>
+        </div>
+      </div>
+    </div>`;
+  });
+  area.innerHTML = `<h5>角色详情 <small class="text-muted">(${res.data.length})</small></h5><div class="row">${cards}</div>`;
+}
+
+// ── 场景画廊 ──
+async function loadSceneGallery() {
+  const area = document.getElementById('galleryArea');
+  area.innerHTML = '<div class="text-center py-3"><div class="spinner-border"></div></div>';
+  const res = await fetch(`${API}/projects/${currentProject}/assets/scenes`).then(r => r.json());
+  if (!res.success || !res.data.length) { area.innerHTML = '<div class="alert alert-warning">暂无场景图</div>'; return; }
+
+  let cards = '';
+  res.data.forEach(s => {
+    cards += `<div class="col-lg-4 col-md-6 mb-3">
+      <div class="card">
+        <img src="${s.image_url}" class="card-img-top" style="height:180px;object-fit:cover" alt="${s.filename}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23ddd%22 width=%22320%22 height=%22180%22/><text x=%22160%22 y=%2290%22 text-anchor=%22middle%22 fill=%22%23999%22>加载失败</text></svg>'">
+        <div class="card-body py-2"><strong>${s.episode_id} ${s.scene_id}</strong></div>
+      </div>
+    </div>`;
+  });
+  area.innerHTML = `<h5>场景图 <small class="text-muted">(${res.data.length})</small></h5><div class="row">${cards}</div>`;
+}
+
+// ── 镜头画廊 ──
+async function loadShotGallery() {
+  const area = document.getElementById('galleryArea');
+  area.innerHTML = '<div class="text-center py-3"><div class="spinner-border"></div></div>';
+  const res = await fetch(`${API}/projects/${currentProject}/assets/shots`).then(r => r.json());
+  if (!res.success || !res.data.length) { area.innerHTML = '<div class="alert alert-warning">暂无镜头数据</div>'; return; }
+
+  const withVideo = res.data.filter(s => s.has_video);
+  const noVideo = res.data.filter(s => !s.has_video);
+
+  let html = `<h5>镜头列表 <small class="text-muted">(${res.data.length} 个镜头，${withVideo.length} 个已生成视频)</small></h5>`;
+
+  if (withVideo.length > 0) {
+    html += '<h6 class="mt-3">已生成视频</h6><div class="row">';
+    withVideo.forEach(s => {
+      html += `<div class="col-lg-6 mb-3">
+        <div class="card">
+          <div class="card-header"><strong>${s.shot_id}</strong></div>
+          <video controls style="width:100%;max-height:360px" preload="metadata">
+            <source src="${s.video_url}" type="video/mp4">
+            您的浏览器不支持视频播放
+          </video>
+          <div class="card-body py-2"><small class="text-muted">${s.action || '无描述'}</small></div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  if (noVideo.length > 0) {
+    html += `<h6 class="mt-3">待生成 (${noVideo.length})</h6>
+      <div class="row"><div class="col"><div class="log-area" style="max-height:200px">`;
+    noVideo.forEach(s => {
+      html += `${s.shot_id}: ${s.action || '无描述'}\n`;
+    });
+    html += '</div></div></div>';
+  }
+
+  area.innerHTML = html;
 }
 
 // ── 集 & 场景 ──

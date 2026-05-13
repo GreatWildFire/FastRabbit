@@ -1,9 +1,11 @@
 """项目查询 + 管理端点。"""
 
+import mimetypes
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import REPO_ROOT, get_project_path
@@ -263,3 +265,121 @@ async def list_shots(name: str, ep: int, scene_id: str):
     episode_id = f"EP{ep:02d}"
     shots = get_shots(name, episode_id, scene_id)
     return {"success": True, "data": shots, "error": None}
+
+
+# ── 资产浏览 ────────────────────────────────────────────────────
+
+def _asset_url(name: str, rel_path: str) -> str:
+    """生成资产文件的 API URL。"""
+    return f"/api/projects/{name}/files/{rel_path}"
+
+
+@router.get("/projects/{name}/assets/characters")
+async def list_character_assets(name: str):
+    """列出项目角色资产（JSON 信息 + 图片 URL）。"""
+    project_root = get_project_path(name)
+    base = project_root / "assets" / "characters" / "base"
+    if not base.exists():
+        return {"success": True, "data": [], "error": None}
+
+    from app.utils.io import read_json
+    from app.utils.text import as_text
+    characters: list[dict[str, Any]] = []
+    for json_file in sorted(base.glob("*.json")):
+        try:
+            data = read_json(json_file)
+            if not isinstance(data, dict):
+                continue
+            char_name = as_text(data.get("name")) or json_file.stem
+            img_path = base / f"{json_file.stem}.png"
+            char_info = {
+                "name": char_name,
+                "age": data.get("age", ""),
+                "gender": data.get("gender", ""),
+                "description": as_text(data.get("description", "")),
+                "has_image": img_path.exists(),
+                "image_url": _asset_url(name, f"assets/characters/base/{img_path.name}") if img_path.exists() else None,
+            }
+            characters.append(char_info)
+        except Exception:
+            pass
+    return {"success": True, "data": characters, "error": None}
+
+
+@router.get("/projects/{name}/assets/scenes")
+async def list_scene_assets(name: str):
+    """列出项目场景图资产。"""
+    project_root = get_project_path(name)
+    base = project_root / "assets" / "scenes" / "base"
+    if not base.exists():
+        return {"success": True, "data": [], "error": None}
+
+    scenes: list[dict[str, Any]] = []
+    for img_file in sorted(base.glob("*.png")):
+        # 解析文件名 EP01_S01.png
+        parts = img_file.stem.split("_", 1)
+        episode_id = parts[0] if parts else ""
+        scene_id = parts[1] if len(parts) > 1 else ""
+        scenes.append({
+            "episode_id": episode_id,
+            "scene_id": scene_id,
+            "filename": img_file.name,
+            "image_url": _asset_url(name, f"assets/scenes/base/{img_file.name}"),
+        })
+    return {"success": True, "data": scenes, "error": None}
+
+
+@router.get("/projects/{name}/assets/shots")
+async def list_shot_assets(name: str):
+    """列出项目镜头视频资产。"""
+    project_root = get_project_path(name)
+    shots_root = project_root / "assets" / "shots"
+    if not shots_root.exists():
+        return {"success": True, "data": [], "error": None}
+
+    from app.utils.io import read_json
+    from app.utils.text import as_text
+    shots: list[dict[str, Any]] = []
+    for shot_dir in sorted(shots_root.iterdir()):
+        if not shot_dir.is_dir():
+            continue
+        shot_id = shot_dir.name
+        video_path = shot_dir / f"{shot_id}.mp4"
+        prompt_path = shot_dir / "video_prompt.json"
+
+        action = ""
+        if prompt_path.exists():
+            try:
+                pd = read_json(prompt_path)
+                if isinstance(pd, dict):
+                    action = as_text(pd.get("video_prompt", ""))
+            except Exception:
+                pass
+
+        shots.append({
+            "shot_id": shot_id,
+            "action": action,
+            "has_video": video_path.exists(),
+            "video_url": _asset_url(name, f"assets/shots/{shot_id}/{shot_id}.mp4") if video_path.exists() else None,
+        })
+    return {"success": True, "data": shots, "error": None}
+
+
+@router.get("/projects/{name}/files/{file_path:path}")
+async def serve_project_file(name: str, file_path: str):
+    """直接提供项目目录下的文件（图片/视频）。"""
+    project_root = get_project_path(name)
+    if not project_root.exists():
+        raise HTTPException(status_code=404, detail=f"项目不存在: {name}")
+
+    target = (project_root / file_path).resolve()
+
+    # 安全检查：确保文件在项目目录内
+    if not str(target).startswith(str(project_root.resolve())):
+        raise HTTPException(status_code=403, detail="路径越权")
+
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+
+    mime, _ = mimetypes.guess_type(target.name)
+    return FileResponse(target, media_type=mime)
