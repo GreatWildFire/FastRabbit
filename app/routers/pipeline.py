@@ -12,7 +12,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI
 
-from app.config import REPO_ROOT, get_api_key, get_project_path, get_prompt_path, get_script_path
+from app.config import (
+    REPO_ROOT, get_project_path, get_prompt_path, get_script_path,
+    get_llm_config, get_image_config, get_video_config,
+)
 from app.utils.io import (
     read_json, write_json, read_project_meta, get_total_episodes,
     ensure_episode_dirs, ensure_scene_dirs, build_episode_index,
@@ -33,8 +36,10 @@ from app.db import (
 
 router = APIRouter(tags=["pipeline"])
 
-DEFAULT_MODEL = "deepseek-v4-flash"
-NANO_BANANA_URL = "https://grsai.dakka.com.cn/v1/draw/nano-banana"
+# 默认模型从 .env 读取，若未配置则使用内置兜底
+_DEFAULT_LLM_MODEL = get_llm_config().model or "deepseek-v4-flash"
+_DEFAULT_IMAGE_MODEL = get_image_config().model or "nano-banana-fast"
+_DEFAULT_VIDEO_MODEL = get_video_config().model or "doubao-seedance-2-0-250528"
 
 # ── 辅助函数 ──────────────────────────────────────────────────────
 
@@ -60,6 +65,7 @@ def _extract_image_url(result: dict[str, Any]) -> str:
 def _request_image_url(api_key: str, prompt: str, image_model: str,
                        aspect_ratio: str, image_size: str,
                        timeout_sec: int, retries: int) -> str:
+    img_config = get_image_config()
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -74,7 +80,7 @@ def _request_image_url(api_key: str, prompt: str, image_model: str,
     last_error = ""
     for _ in range(max(1, retries + 1)):
         try:
-            result = _post_json(NANO_BANANA_URL, payload, headers, timeout=timeout_sec)
+            result = _post_json(img_config.base_url, payload, headers, timeout=timeout_sec)
             status = as_text(result.get("status")) or as_text(result.get("data", {}).get("status"))
             failure_reason = as_text(result.get("failure_reason")) or as_text(result.get("data", {}).get("failure_reason"))
             image_url = _extract_image_url(result)
@@ -104,10 +110,10 @@ def _load_script_text(script_file: str) -> str:
 
 
 def _create_llm_client() -> OpenAI:
-    api_key = get_api_key("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="未配置 DEEPSEEK_API_KEY")
-    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    llm = get_llm_config()
+    if not llm.api_key:
+        raise HTTPException(status_code=500, detail="未配置 LLM_API_KEY")
+    return OpenAI(api_key=llm.api_key, base_url=llm.base_url)
 
 
 def _update_scene_image_db(project_name: str, episode_id: str, scene_id: str) -> None:
@@ -152,7 +158,7 @@ def _llm_json(client: OpenAI, model: str, system_prompt: str, user_prompt: str) 
 async def analyze_script(
     name: str,
     script_file: str = "测试剧本.txt",
-    model: str = DEFAULT_MODEL,
+    model: str = _DEFAULT_LLM_MODEL,
 ):
     """步骤1：调用 LLM 将剧本拆解为集和场景。"""
     project_root = get_project_path(name)
@@ -242,7 +248,7 @@ async def generate_scene_shots(
     episode: int = 0,
     scene_id: str = "",
     script_file: str = "测试剧本.txt",
-    model: str = DEFAULT_MODEL,
+    model: str = _DEFAULT_LLM_MODEL,
     max_shots: int = 12,
 ):
     """步骤3：将场景拆解为镜头。"""
@@ -345,7 +351,7 @@ async def generate_scene_shots(
 async def generate_character_profiles(
     name: str,
     script_file: str = "测试剧本.txt",
-    model: str = DEFAULT_MODEL,
+    model: str = _DEFAULT_LLM_MODEL,
     max_characters: int = 4,
 ):
     """步骤4：LLM 提取核心角色信息。"""
@@ -410,8 +416,8 @@ async def generate_character_images(
     name: str,
     character_names: str = "",
     character_files: str = "",
-    llm_model: str = DEFAULT_MODEL,
-    image_model: str = "nano-banana-fast",
+    llm_model: str = _DEFAULT_LLM_MODEL,
+    image_model: str = _DEFAULT_IMAGE_MODEL,
     aspect_ratio: str = "3:4",
     image_size: str = "1K",
     image_ext: str = "png",
@@ -423,9 +429,10 @@ async def generate_character_images(
     project_root = get_project_path(name)
     character_dir = project_root / "assets" / "characters" / "base"
 
-    banana_key = get_api_key("NANO_BANANA_API_KEY")
+    img_config = get_image_config()
+    banana_key = img_config.api_key
     if not banana_key:
-        raise HTTPException(status_code=500, detail="未配置 NANO_BANANA_API_KEY")
+        raise HTTPException(status_code=500, detail="未配置 IMAGE_API_KEY")
 
     system_prompt = _load_prompt_text("prompts/character_image_prompt_system.txt")
     cards = sorted([p for p in character_dir.glob("*.json") if p.is_file()])
@@ -488,7 +495,7 @@ async def generate_scene_prompts(
     episode: int = 0,
     scene_id: str = "",
     script_file: str = "测试剧本.txt",
-    model: str = DEFAULT_MODEL,
+    model: str = _DEFAULT_LLM_MODEL,
 ):
     """步骤6：为每个场景生成生图提示词。"""
     project_root = get_project_path(name)
@@ -592,7 +599,7 @@ async def generate_scene_images(
     name: str,
     episode: int = 0,
     scene_id: str = "",
-    image_model: str = "nano-banana-fast",
+    image_model: str = _DEFAULT_IMAGE_MODEL,
     aspect_ratio: str = "16:9",
     image_size: str = "1K",
     image_ext: str = "png",
@@ -605,9 +612,10 @@ async def generate_scene_images(
     analysis_root = project_root / "script_analysis"
     output_root = project_root / "assets" / "scenes" / "base"
 
-    banana_key = get_api_key("NANO_BANANA_API_KEY")
+    img_config = get_image_config()
+    banana_key = img_config.api_key
     if not banana_key:
-        raise HTTPException(status_code=500, detail="未配置 NANO_BANANA_API_KEY")
+        raise HTTPException(status_code=500, detail="未配置 IMAGE_API_KEY")
 
     project_meta_path = analysis_root / "project_meta.json"
     if not project_meta_path.exists():
@@ -719,7 +727,8 @@ def _create_ark_client(ark_api_key: str):
         from volcenginesdkarkruntime import Ark
     except ImportError:
         raise HTTPException(status_code=500, detail="缺少 ark SDK: pip install 'volcengine-python-sdk[ark]'")
-    return Ark(base_url="https://ark.cn-beijing.volces.com/api/v3", api_key=ark_api_key)
+    video_config = get_video_config()
+    return Ark(base_url=video_config.base_url, api_key=ark_api_key)
 
 
 def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
@@ -948,8 +957,8 @@ async def start_shot_videos(
     scene_id: str = "",
     shot_id: str = "",
     script_file: str = "测试剧本.txt",
-    llm_model: str = DEFAULT_MODEL,
-    video_model: str = "doubao-seedance-2-0-250528",
+    llm_model: str = _DEFAULT_LLM_MODEL,
+    video_model: str = _DEFAULT_VIDEO_MODEL,
     poll_interval: int = 10,
     max_wait_sec: int = 900,
     max_character_refs: int = 2,
@@ -960,13 +969,13 @@ async def start_shot_videos(
     project_root = get_project_path(name)
     analysis_root = project_root / "script_analysis"
 
-    ark_key = get_api_key("ARK_API_KEY")
+    video_config = get_video_config()
+    llm_config = get_llm_config()
+    ark_key = video_config.api_key
     if not ark_key and not dry_run:
-        raise HTTPException(status_code=500, detail="未配置 ARK_API_KEY")
-
-    deepseek_key = get_api_key("DEEPSEEK_API_KEY")
-    if not deepseek_key:
-        raise HTTPException(status_code=500, detail="未配置 DEEPSEEK_API_KEY")
+        raise HTTPException(status_code=500, detail="未配置 VIDEO_API_KEY")
+    if not llm_config.api_key:
+        raise HTTPException(status_code=500, detail="未配置 LLM_API_KEY")
 
     project_meta_path = analysis_root / "project_meta.json"
     if not project_meta_path.exists():

@@ -40,12 +40,23 @@ project-name/
 ## 环境准备
 
 - Python 3.10+
-- 在仓库根目录创建 `.env`（勿提交），配置 API Key：
+- 在仓库根目录创建 `.env`（参考 `.env.example`），配置 API Key：
 
 ```env
-DEEPSEEK_API_KEY=sk-...
-NANO_BANANA_API_KEY=sk-...
-ARK_API_KEY=...
+LLM_PROVIDER=deepseek
+LLM_MODEL=deepseek-v4-flash
+LLM_API_KEY=sk-...
+LLM_BASE_URL=https://api.deepseek.com
+
+IMAGE_PROVIDER=nano-banana
+IMAGE_MODEL=nano-banana-fast
+IMAGE_API_KEY=sk-...
+IMAGE_BASE_URL=https://grsai.dakka.com.cn/v1/draw/nano-banana
+
+VIDEO_PROVIDER=ark
+VIDEO_MODEL=doubao-seedance-2-0-250528
+VIDEO_API_KEY=...
+VIDEO_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ```
 
 安装依赖：
