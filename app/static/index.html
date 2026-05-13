@@ -6,48 +6,953 @@
 <title>FastRabbit — 短剧生成控制台</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-:root { --sidebar-w: 220px; }
-body { font-size: 14px; }
+/* ═══════════════════════════════════════════════════════════════════
+   FastRabbit — Director's Console
+   Cinematic dark theme with warm amber accents & glass surfaces
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg-root: #08080e;
+  --bg-surface: #111118;
+  --bg-elevated: #181822;
+  --bg-glass: rgba(22, 22, 33, 0.7);
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-normal: rgba(255,255,255,0.10);
+  --border-accent: rgba(240, 165, 0, 0.25);
+  --text-primary: #e6e0d8;
+  --text-secondary: #9d9790;
+  --text-muted: #5e5a55;
+  --accent: #f0a500;
+  --accent-glow: rgba(240, 165, 0, 0.20);
+  --accent-deep: #c47f00;
+  --teal: #00c9a7;
+  --teal-glow: rgba(0, 201, 167, 0.18);
+  --rose: #e8556d;
+  --rose-glow: rgba(232, 85, 109, 0.18);
+  --sidebar-w: 232px;
+  --font-sans: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --transition-fast: 180ms ease;
+  --transition: 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  background: var(--bg-root);
+  color: var(--text-primary);
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle grain overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ═══ Custom Scrollbar ═══ */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ═══════════════════════════ SIDEBAR ═══════════════════════════ */
+
 .sidebar {
   position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar-w);
-  background: #1e1e2f; color: #ccc; overflow-y: auto; z-index: 100;
+  background: linear-gradient(180deg, #0e0e1a 0%, #0c0c16 40%, #0a0a14 100%);
+  color: #ccc;
+  overflow-y: auto;
+  z-index: 100;
+  border-right: 1px solid var(--border-subtle);
+  backdrop-filter: blur(10px);
 }
-.sidebar h5 { color: #fff; padding: 16px 16px 8px; font-size: 16px; }
-.sidebar .nav-link { color: #aaa; padding: 6px 16px; border-left: 3px solid transparent; }
-.sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: #2d2d44; border-left-color: #6c63ff; }
-.sidebar .badge { font-size: 10px; }
-.main { margin-left: var(--sidebar-w); padding: 20px; }
-.step-btn { width: 180px; text-align: left; margin-bottom: 6px; position: relative; }
-.step-btn .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-.step-btn .status-dot.idle { background: #999; }
-.step-btn .status-dot.running { background: #ffc107; animation: pulse 0.8s infinite; }
-.step-btn .status-dot.ok { background: #198754; }
-.step-btn .status-dot.err { background: #dc3545; }
-@keyframes pulse { 50% { opacity: 0.4; } }
-.log-area { background: #0d1117; color: #c9d1d9; font-family: monospace; font-size: 12px; padding: 12px; border-radius: 6px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; }
-.script-editor { font-family: monospace; font-size: 13px; min-height: 200px; }
+
+.sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+  opacity: 0.6;
+}
+
+.sidebar-brand {
+  padding: 20px 18px 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-brand .logo-icon {
+  width: 34px; height: 34px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent), #e08700);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 4px 14px var(--accent-glow);
+  flex-shrink: 0;
+}
+
+.sidebar-brand h5 {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.sidebar-brand h5 span { font-weight: 300; color: var(--text-secondary); }
+
+.sidebar .project-area {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 4px;
+}
+
+.sidebar .project-area select {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  padding: 7px 10px;
+  transition: var(--transition-fast);
+}
+.sidebar .project-area select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+  outline: none;
+}
+
+.sidebar .btn-new-project {
+  width: 32px; height: 32px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px dashed var(--border-normal);
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.sidebar .btn-new-project:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(240, 165, 0, 0.06);
+}
+
+.sidebar .nav-link {
+  color: var(--text-secondary);
+  padding: 9px 18px;
+  border-left: 2px solid transparent;
+  font-size: 13.5px;
+  font-weight: 400;
+  transition: var(--transition);
+  cursor: pointer;
+  text-decoration: none;
+  display: block;
+  margin: 1px 0;
+}
+.sidebar .nav-link:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.02);
+}
+.sidebar .nav-link.active {
+  color: var(--accent);
+  background: linear-gradient(90deg, rgba(240,165,0,0.07) 0%, transparent 100%);
+  border-left-color: var(--accent);
+  font-weight: 500;
+}
+
+.sidebar .nav-icon {
+  display: inline-block; width: 20px;
+  margin-right: 8px;
+  opacity: 0.55;
+  font-size: 12px;
+  transition: var(--transition);
+}
+.sidebar .nav-link.active .nav-icon { opacity: 1; }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+.sidebar-footer a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: var(--transition-fast);
+  display: flex; align-items: center; gap: 6px;
+}
+.sidebar-footer a:hover { color: var(--accent); }
+
+/* ═══════════════════════════ MAIN AREA ═══════════════════════════ */
+
+.main {
+  margin-left: var(--sidebar-w);
+  padding: 28px 32px;
+  min-height: 100vh;
+  animation: fadeSlideIn 0.5s var(--transition) both;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════ STAT CARDS ═══════════════════════════ */
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.stat-card {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  transition: var(--transition);
+  opacity: 0;
+}
+
+.stat-card:hover {
+  border-color: rgba(255,255,255,0.16);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+
+.stat-card:hover::before { opacity: 1; }
+
+.stat-card.card-episodes::before { background: linear-gradient(90deg, #6c8cff, #8b9eff); }
+.stat-card.card-episodes:hover { border-color: rgba(108,140,255,0.3); }
+.stat-card.card-episodes .stat-icon { color: #6c8cff; }
+
+.stat-card.card-characters::before { background: linear-gradient(90deg, #f0a500, #f5c842); }
+.stat-card.card-characters:hover { border-color: rgba(240,165,0,0.3); }
+.stat-card.card-characters .stat-icon { color: #f0a500; }
+
+.stat-card.card-scenes::before { background: linear-gradient(90deg, #00c9a7, #00e6bf); }
+.stat-card.card-scenes:hover { border-color: rgba(0,201,167,0.3); }
+.stat-card.card-scenes .stat-icon { color: #00c9a7; }
+
+.stat-card.card-shots::before { background: linear-gradient(90deg, #e8556d, #f07b8e); }
+.stat-card.card-shots:hover { border-color: rgba(232,85,109,0.3); }
+.stat-card.card-shots .stat-icon { color: #e8556d; }
+
+.stat-card .stat-icon {
+  font-size: 22px;
+  margin-bottom: 6px;
+  transition: var(--transition);
+}
+.stat-card:hover .stat-icon { transform: scale(1.1); }
+
+.stat-card .stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 500;
+}
+
+.stat-card .stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  margin: 2px 0;
+}
+
+.stat-card .stat-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: var(--transition);
+}
+.stat-card:hover .stat-hint { opacity: 1; }
+
+/* ═══════════════════════════ PAGE HEADER ═══════════════════════════ */
+
+.page-header {
+  margin-bottom: 8px;
+}
+
+.page-header h4 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+
+.page-header .badge-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(240,165,0,0.10);
+  color: var(--accent);
+  border: 1px solid rgba(240,165,0,0.15);
+  margin-left: 8px;
+}
+
+/* ═══════════════════════════ GALLERY AREA ═══════════════════════════ */
+
+#galleryArea { animation: fadeSlideIn 0.35s var(--transition) both; }
+
+#galleryArea h5 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.gallery-card {
+  background: var(--bg-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: var(--transition);
+}
+.gallery-card:hover {
+  border-color: rgba(255,255,255,0.14);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.gallery-card img, .gallery-card video {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.gallery-card .card-body { padding: 12px 14px; }
+
+.gallery-card .card-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--text-primary); margin: 0;
+}
+
+.gallery-card .card-meta {
+  font-size: 11px; color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.gallery-card .card-desc {
+  font-size: 11px; color: var(--text-muted);
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.gallery-card .card-img-placeholder {
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ═══════════════════════════ EPISODE TABLE / CARDS ═══════════════ */
+
+.episode-card {
+  background: var(--bg-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: 14px;
+  overflow: hidden;
+  transition: var(--transition);
+}
+.episode-card:hover { border-color: var(--border-normal); }
+
+.episode-card .ep-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255,255,255,0.01);
+}
+
+.episode-card .ep-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgba(240,165,0,0.15), rgba(240,165,0,0.05));
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.episode-card .ep-title { font-weight: 600; font-size: 15px; color: var(--text-primary); }
+.episode-card .ep-meta { font-size: 12px; color: var(--text-secondary); }
+
+.episode-card .ep-body { padding: 16px 20px; }
+
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.scene-chip {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  transition: var(--transition-fast);
+}
+.scene-chip:hover {
+  border-color: var(--border-normal);
+  background: rgba(255,255,255,0.02);
+}
+
+.scene-chip .sc-id {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.scene-chip .sc-loc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.scene-chip .sc-chars {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ═══════════════════════════ PIPELINE ═══════════════════════════ */
+
+.pipeline-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+  margin-top: 12px;
+}
+
+/* Script Editor */
+.script-section {
+  background: var(--bg-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+
+.script-section .section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.script-editor {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  min-height: 180px;
+  background: var(--bg-root) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-normal) !important;
+  border-radius: var(--radius) !important;
+  padding: 14px !important;
+  line-height: 1.7;
+  resize: vertical;
+  transition: var(--transition-fast);
+}
+.script-editor:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+  outline: none;
+}
+
+.script-actions {
+  display: flex; gap: 8px; margin-top: 10px;
+}
+
+.btn-script {
+  padding: 6px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  border: 1px solid var(--border-normal);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+.btn-script:hover {
+  border-color: rgba(255,255,255,0.2);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.03);
+}
+.btn-script.btn-save {
+  background: rgba(240,165,0,0.08);
+  border-color: rgba(240,165,0,0.2);
+  color: var(--accent);
+}
+.btn-script.btn-save:hover {
+  background: rgba(240,165,0,0.15);
+  border-color: rgba(240,165,0,0.35);
+}
+
+#scriptStatus { font-size: 12px; color: var(--teal); margin-left: 4px; }
+
+/* Step Buttons */
+.steps-section { margin-top: 2px; }
+
+.step-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  margin-bottom: 6px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.step-btn::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+  transition: var(--transition);
+}
+
+.step-btn:hover {
+  border-color: rgba(255,255,255,0.12);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.02);
+  transform: translateX(2px);
+}
+
+.step-btn:active { transform: scale(0.99); }
+
+.step-btn:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.step-btn .step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.step-btn:hover .step-num { color: var(--text-secondary); }
+
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.status-dot.idle    { background: #4a4650; box-shadow: none; }
+.status-dot.running {
+  background: #f0a500;
+  box-shadow: 0 0 8px var(--accent-glow);
+  animation: dotPulse 0.9s infinite;
+}
+.status-dot.ok     { background: #00c9a7; box-shadow: 0 0 8px var(--teal-glow); }
+.status-dot.err    { background: #e8556d; box-shadow: 0 0 8px var(--rose-glow); }
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.7); }
+}
+
+/* ═══════════════════════════ LOG PANEL ═══════════════════════════ */
+
+.log-panel {
+  background: #08080c;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 180px);
+  min-height: 500px;
+}
+
+.log-panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255,255,255,0.01);
+}
+
+.log-panel-header .log-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-panel-header .log-title::before {
+  content: '';
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+.log-panel-header .btn-clear {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: var(--transition-fast);
+}
+.log-panel-header .btn-clear:hover {
+  border-color: var(--border-normal);
+  color: var(--text-secondary);
+}
+
+.log-area {
+  flex: 1;
+  background: #050508;
+  color: #b0b8a8;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 16px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+  position: relative;
+}
+
+/* Scanline effect on log */
+.log-area::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+}
+
+.log-line-success { color: var(--teal); }
+.log-line-error   { color: var(--rose); }
+.log-line-info    { color: var(--accent); }
+
+/* Video Progress */
+#videoProgress {
+  padding: 10px 14px;
+  background: rgba(240,165,0,0.06);
+  border: 1px solid rgba(240,165,0,0.12);
+  border-radius: var(--radius);
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* ═══════════════════════════ TABLE ═══════════════════════════ */
+
+.table-wrap {
+  background: var(--bg-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-top: 20px;
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0;
+}
+
+.table-wrap thead th {
+  padding: 12px 18px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255,255,255,0.01);
+}
+
+.table-wrap tbody td {
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  color: var(--text-secondary);
+}
+
+.table-wrap tbody tr {
+  transition: var(--transition-fast);
+}
+.table-wrap tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+.table-wrap tbody tr:last-child td { border-bottom: none; }
+
+/* ═══════════════════════════ MODAL ═══════════════════════════ */
+
+.modal-content {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-normal) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.7) !important;
+  backdrop-filter: blur(20px);
+}
+
+.modal-header {
+  border-bottom-color: var(--border-subtle) !important;
+  padding: 18px 22px !important;
+}
+
+.modal-header .modal-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px 22px !important;
+}
+
+.modal-footer {
+  border-top-color: var(--border-subtle) !important;
+  padding: 14px 22px !important;
+}
+
+.modal-body .form-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.modal-body .form-control {
+  background: var(--bg-root) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-normal) !important;
+  border-radius: var(--radius) !important;
+  font-size: 13px;
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+  transition: var(--transition-fast);
+}
+.modal-body .form-control:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+}
+
+.modal-body .form-control.script-editor {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.btn-close-white { filter: invert(0.7) brightness(1.4); }
+
+.modal-footer .btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+
+.modal-footer .btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border-normal);
+  color: var(--text-secondary);
+}
+.modal-footer .btn-secondary:hover {
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+}
+
+.modal-footer .btn-primary {
+  background: linear-gradient(135deg, var(--accent), #e08700);
+  border: none;
+  color: #000;
+  font-weight: 600;
+}
+.modal-footer .btn-primary:hover {
+  box-shadow: 0 4px 18px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+/* ═══════════════════════════ ALERTS ═══════════════════════════ */
+
+.alert {
+  border-radius: var(--radius) !important;
+  font-size: 13px;
+  border: 1px solid;
+}
+
+.alert-danger {
+  background: rgba(232,85,109,0.08) !important;
+  border-color: rgba(232,85,109,0.2) !important;
+  color: var(--rose) !important;
+}
+
+.alert-warning {
+  background: rgba(240,165,0,0.06) !important;
+  border-color: rgba(240,165,0,0.15) !important;
+  color: var(--accent) !important;
+}
+
+/* ═══════════════════════════ SPINNER ═══════════════════════════ */
+
+.spinner-border {
+  border-color: rgba(255,255,255,0.1) !important;
+  border-right-color: var(--accent) !important;
+}
+
+/* ═══════════════════════════ RESPONSIVE ═══════════════════════════ */
+
+@media (max-width: 992px) {
+  .stat-cards { grid-template-columns: repeat(2, 1fr); }
+  .pipeline-layout { grid-template-columns: 1fr; }
+  .log-panel { height: 400px; min-height: 300px; }
+}
+
+@media (max-width: 768px) {
+  :root { --sidebar-w: 200px; }
+  .main { padding: 20px 16px; }
+  .stat-cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { padding: 14px 16px; }
+  .stat-card .stat-value { font-size: 24px; }
+}
+
+@media (max-width: 576px) {
+  :root { --sidebar-w: 0px; }
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+}
 </style>
 </head>
 <body>
 
 <!-- Sidebar -->
 <div class="sidebar d-flex flex-column">
-  <h5>📺 FastRabbit</h5>
-  <div class="px-3 pb-2">
-    <div class="d-flex gap-1">
-      <select id="projectSelect" class="form-select form-select-sm bg-dark text-light border-secondary" onchange="selectProject()">
+  <div class="sidebar-brand">
+    <div class="logo-icon">▶</div>
+    <h5>Fast<span>Rabbit</span></h5>
+  </div>
+  <div class="project-area">
+    <div class="d-flex gap-2">
+      <select id="projectSelect" class="form-select form-select-sm" onchange="selectProject()">
         <option value="">-- 选择项目 --</option>
       </select>
-      <button class="btn btn-sm btn-outline-info" title="新建项目" onclick="showCreateModal()">+</button>
+      <button class="btn-new-project" title="新建项目" onclick="showCreateModal()">+</button>
     </div>
   </div>
   <nav class="nav flex-column" id="navTabs">
-    <a class="nav-link active" href="#" data-tab="overview">项目概览</a>
-    <a class="nav-link" href="#" data-tab="episodes">集 & 场景</a>
-    <a class="nav-link" href="#" data-tab="pipeline">管线操作</a>
+    <a class="nav-link active" href="#" data-tab="overview"><span class="nav-icon">◆</span>项目概览</a>
+    <a class="nav-link" href="#" data-tab="episodes"><span class="nav-icon">◇</span>集 & 场景</a>
+    <a class="nav-link" href="#" data-tab="pipeline"><span class="nav-icon">◎</span>管线操作</a>
   </nav>
-  <div class="mt-auto p-2 text-muted" style="font-size:11px">
-    <a href="/docs" target="_blank" class="text-muted">Swagger UI →</a>
+  <div class="sidebar-footer">
+    <a href="/docs" target="_blank">→ Swagger UI</a>
   </div>
 </div>
 
@@ -57,22 +962,22 @@ body { font-size: 14px; }
 <!-- Create Project Modal -->
 <div class="modal fade" id="createModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
-    <div class="modal-content bg-dark text-light">
-      <div class="modal-header border-secondary">
+    <div class="modal-content">
+      <div class="modal-header">
         <h5 class="modal-title">创建新项目</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="mb-3">
           <label class="form-label">项目名称</label>
-          <input type="text" class="form-control bg-dark text-light border-secondary" id="newProjectName" placeholder="例如：我的短剧01">
+          <input type="text" class="form-control" id="newProjectName" placeholder="例如：我的短剧01">
         </div>
         <div class="mb-3">
           <label class="form-label">剧本文本（可选，也可后续上传）</label>
-          <textarea class="form-control bg-dark text-light border-secondary script-editor" id="newProjectScript" placeholder="粘贴剧本文本..."></textarea>
+          <textarea class="form-control script-editor" id="newProjectScript" placeholder="粘贴剧本文本..." style="min-height:160px"></textarea>
         </div>
       </div>
-      <div class="modal-footer border-secondary">
+      <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
         <button type="button" class="btn btn-primary" onclick="createProject()">创建</button>
       </div>
@@ -118,7 +1023,11 @@ function selectProject() {
     const activeTab = document.querySelector('#navTabs .nav-link.active');
     renderTab(activeTab ? activeTab.dataset.tab : 'overview');
   } else {
-    document.getElementById('mainContent').innerHTML = '<p class="text-muted mt-4">请选择一个项目</p>';
+    document.getElementById('mainContent').innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;height:60vh;flex-direction:column;gap:12px">
+        <div style="font-size:48px;opacity:0.2">▶</div>
+        <p style="color:var(--text-muted);font-size:15px">请选择一个项目开始</p>
+      </div>`;
   }
 }
 
@@ -151,9 +1060,19 @@ async function createProject() {
 // ── Tab 渲染 ──
 async function renderTab(tab) {
   if (!currentProject) return;
+  const main = document.getElementById('mainContent');
+  main.style.opacity = '0';
+  main.style.transform = 'translateY(6px)';
+  main.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+
   if (tab === 'overview') await renderOverview();
   else if (tab === 'episodes') await renderEpisodes();
   else if (tab === 'pipeline') renderPipeline();
+
+  requestAnimationFrame(() => {
+    main.style.opacity = '1';
+    main.style.transform = 'translateY(0)';
+  });
 }
 
 // ── 概览 ──
@@ -164,17 +1083,40 @@ async function renderOverview() {
   let eps = (d.episodes || []).map(e => `
     <tr><td>${e.episode_id || ''}</td><td>${e.title || ''}</td><td>${e.scene_count || 0} 场</td></tr>`).join('');
   document.getElementById('mainContent').innerHTML = `
-    <h4>${d.name || ''} <small class="text-muted">${d.status || ''}</small></h4>
-    <div class="row g-3 mt-2">
-      <div class="col-md-3"><div class="card text-bg-primary"><div class="card-body"><h6>总集数</h6><h3>${d.total_episodes || 0}</h3></div></div></div>
-      <div class="col-md-3"><div class="card text-bg-success" style="cursor:pointer" onclick="loadCharacterGallery()"><div class="card-body"><h6>角色</h6><h3>${d.character_count || 0}</h3><small>点击查看详情</small></div></div></div>
-      <div class="col-md-3"><div class="card text-bg-info" style="cursor:pointer" onclick="loadSceneGallery()"><div class="card-body"><h6>场景图</h6><h3>${d.scene_image_count || 0}</h3><small>点击查看详情</small></div></div></div>
-      <div class="col-md-3"><div class="card text-bg-warning" style="cursor:pointer" onclick="loadShotGallery()"><div class="card-body"><h6>镜头视频</h6><h3>${d.shot_video_count || 0}</h3><small>点击查看详情</small></div></div></div>
+    <div class="page-header">
+      <h4>${d.name || ''}<span class="badge-status">${d.status || 'unknown'}</span></h4>
+    </div>
+    <div class="stat-cards">
+      <div class="stat-card card-episodes" onclick="/* overview */">
+        <div class="stat-icon">▣</div>
+        <div class="stat-label">总集数</div>
+        <div class="stat-value">${d.total_episodes || 0}</div>
+        <div class="stat-hint">已拆解剧本</div>
+      </div>
+      <div class="stat-card card-characters" onclick="loadCharacterGallery()">
+        <div class="stat-icon">●</div>
+        <div class="stat-label">角色</div>
+        <div class="stat-value">${d.character_count || 0}</div>
+        <div class="stat-hint">点击查看详情 →</div>
+      </div>
+      <div class="stat-card card-scenes" onclick="loadSceneGallery()">
+        <div class="stat-icon">◈</div>
+        <div class="stat-label">场景图</div>
+        <div class="stat-value">${d.scene_image_count || 0}</div>
+        <div class="stat-hint">点击查看详情 →</div>
+      </div>
+      <div class="stat-card card-shots" onclick="loadShotGallery()">
+        <div class="stat-icon">▶</div>
+        <div class="stat-label">镜头视频</div>
+        <div class="stat-value">${d.shot_video_count || 0}</div>
+        <div class="stat-hint">点击查看详情 →</div>
+      </div>
     </div>
     <div id="galleryArea" class="mt-3"></div>
-    <h6 class="mt-3">各集状态</h6>
-    <table class="table table-sm"><thead><tr><th>ID</th><th>标题</th><th>场景</th></tr></thead><tbody>${eps}</tbody></table>
-    ${d.created_at ? `<small class="text-muted">创建于 ${d.created_at} / 更新于 ${d.updated_at}</small>` : ''}`;
+    <div class="table-wrap">
+      <table><thead><tr><th>ID</th><th>标题</th><th>场景</th></tr></thead><tbody>${eps || '<tr><td colspan="3" style="color:var(--text-muted)">暂无数据</td></tr>'}</tbody></table>
+    </div>
+    ${d.created_at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:14px">创建于 ${d.created_at} / 更新于 ${d.updated_at}</div>` : ''}`;
 }
 
 // ── 角色画廊 ──
@@ -186,19 +1128,18 @@ async function loadCharacterGallery() {
 
   let cards = '';
   res.data.forEach(c => {
-    cards += `<div class="col-lg-3 col-md-4 col-sm-6 mb-3">
-      <div class="card h-100">
-        ${c.has_image ? `<img src="${c.image_url}" class="card-img-top" style="height:220px;object-fit:cover" alt="${c.name}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22220%22><rect fill=%22%23ddd%22 width=%22200%22 height=%22220%22/><text x=%22100%22 y=%22110%22 text-anchor=%22middle%22 fill=%22%23999%22>无图片</text></svg>'">`
-         : `<div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height:220px"><span class="text-muted">暂无角色图</span></div>`}
-        <div class="card-body py-2">
-          <h6 class="card-title mb-1">${c.name}</h6>
-          <small class="text-muted">${c.gender || ''} · ${c.age || ''}岁</small>
-          <p class="card-text mt-1" style="font-size:12px">${c.description || ''}</p>
-        </div>
+    cards += `<div class="gallery-card">
+      ${c.has_image ? `<img src="${c.image_url}" style="height:240px" alt="${c.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="card-img-placeholder" style="height:240px;display:none"><span>无图片</span></div>`
+       : `<div class="card-img-placeholder" style="height:240px"><span>暂无角色图</span></div>`}
+      <div class="card-body">
+        <div class="card-title">${c.name}</div>
+        <div class="card-meta">${c.gender || ''} · ${c.age || ''}岁</div>
+        <div class="card-desc">${c.description || ''}</div>
       </div>
     </div>`;
   });
-  area.innerHTML = `<h5>角色详情 <small class="text-muted">(${res.data.length})</small></h5><div class="row">${cards}</div>`;
+  area.innerHTML = `<h5>角色详情 <small style="color:var(--text-muted);font-weight:400">${res.data.length}</small></h5><div class="gallery-grid">${cards}</div>`;
 }
 
 // ── 场景画廊 ──
@@ -210,14 +1151,13 @@ async function loadSceneGallery() {
 
   let cards = '';
   res.data.forEach(s => {
-    cards += `<div class="col-lg-4 col-md-6 mb-3">
-      <div class="card">
-        <img src="${s.image_url}" class="card-img-top" style="height:180px;object-fit:cover" alt="${s.filename}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23ddd%22 width=%22320%22 height=%22180%22/><text x=%22160%22 y=%2290%22 text-anchor=%22middle%22 fill=%22%23999%22>加载失败</text></svg>'">
-        <div class="card-body py-2"><strong>${s.episode_id} ${s.scene_id}</strong></div>
-      </div>
+    cards += `<div class="gallery-card">
+      <img src="${s.image_url}" style="height:200px" alt="${s.filename}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="card-img-placeholder" style="height:200px;display:none"><span>加载失败</span></div>
+      <div class="card-body"><div class="card-title">${s.episode_id} ${s.scene_id}</div></div>
     </div>`;
   });
-  area.innerHTML = `<h5>场景图 <small class="text-muted">(${res.data.length})</small></h5><div class="row">${cards}</div>`;
+  area.innerHTML = `<h5>场景图 <small style="color:var(--text-muted);font-weight:400">${res.data.length}</small></h5><div class="gallery-grid">${cards}</div>`;
 }
 
 // ── 镜头画廊 ──
@@ -230,19 +1170,19 @@ async function loadShotGallery() {
   const withVideo = res.data.filter(s => s.has_video);
   const noVideo = res.data.filter(s => !s.has_video);
 
-  let html = `<h5>镜头列表 <small class="text-muted">(${res.data.length} 个镜头，${withVideo.length} 个已生成视频)</small></h5>`;
+  let html = `<h5>镜头列表 <small style="color:var(--text-muted);font-weight:400">${res.data.length} 个镜头，${withVideo.length} 个已生成视频</small></h5>`;
 
   if (withVideo.length > 0) {
-    html += '<h6 class="mt-3">已生成视频</h6><div class="row">';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.6px">已生成视频</div><div class="gallery-grid">';
     withVideo.forEach(s => {
-      html += `<div class="col-lg-6 mb-3">
-        <div class="card">
-          <div class="card-header"><strong>${s.shot_id}</strong></div>
-          <video controls style="width:100%;max-height:360px" preload="metadata">
-            <source src="${s.video_url}" type="video/mp4">
-            您的浏览器不支持视频播放
-          </video>
-          <div class="card-body py-2"><small class="text-muted">${s.action || '无描述'}</small></div>
+      html += `<div class="gallery-card">
+        <video controls style="width:100%;max-height:280px" preload="metadata">
+          <source src="${s.video_url}" type="video/mp4">
+          您的浏览器不支持视频播放
+        </video>
+        <div class="card-body">
+          <div class="card-title">${s.shot_id}</div>
+          <div class="card-desc">${s.action || '无描述'}</div>
         </div>
       </div>`;
     });
@@ -250,12 +1190,10 @@ async function loadShotGallery() {
   }
 
   if (noVideo.length > 0) {
-    html += `<h6 class="mt-3">待生成 (${noVideo.length})</h6>
-      <div class="row"><div class="col"><div class="log-area" style="max-height:200px">`;
-    noVideo.forEach(s => {
-      html += `${s.shot_id}: ${s.action || '无描述'}\n`;
-    });
-    html += '</div></div></div>';
+    html += `<div style="font-size:12px;color:var(--text-muted);margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.6px">待生成 (${noVideo.length})</div>
+      <div class="log-area" style="max-height:160px;border-radius:var(--radius)">`;
+    noVideo.forEach(s => { html += `${s.shot_id}: ${s.action || '无描述'}\n`; });
+    html += '</div>';
   }
 
   area.innerHTML = html;
@@ -265,15 +1203,25 @@ async function loadShotGallery() {
 async function renderEpisodes() {
   const res = await fetch(`${API}/projects/${currentProject}/episodes`).then(r => r.json());
   if (!res.success) { document.getElementById('mainContent').innerHTML = `<div class="alert alert-danger">${res.error}</div>`; return; }
-  let html = '<h4>集 & 场景</h4>';
+  let html = '<div class="page-header"><h4>集 & 场景</h4></div>';
   for (const ep of res.data) {
     const scenes = ep.scenes || [];
-    html += `<div class="card mb-3"><div class="card-header"><strong>${ep.episode_id}</strong> — ${ep.title}（${scenes.length} 场）</div><div class="card-body"><div class="row">`;
+    html += `<div class="episode-card">
+      <div class="ep-header">
+        <div class="ep-badge">${ep.episode_id || '?'}</div>
+        <div>
+          <div class="ep-title">${ep.title || '未命名'}</div>
+          <div class="ep-meta">${scenes.length} 场</div>
+        </div>
+      </div>
+      <div class="ep-body">
+        <div class="scene-grid">`;
     for (const sc of scenes) {
-      html += `<div class="col-md-4 mb-2"><div class="card"><div class="card-body py-2">
-        <strong>${sc.scene_id}</strong> <small class="text-muted">${sc.location || ''} · ${sc.time || ''}</small><br>
-        <span class="text-muted">${Array.isArray(sc.characters) ? sc.characters.join('、') : sc.characters || '无角色'}</span>
-      </div></div></div>`;
+      html += `<div class="scene-chip">
+        <div class="sc-id">${sc.scene_id}</div>
+        <div class="sc-loc">${sc.location || '未知地点'} · ${sc.time || '未指定时间'}</div>
+        <div class="sc-chars">${Array.isArray(sc.characters) ? sc.characters.join('、') : sc.characters || '无角色'}</div>
+      </div>`;
     }
     html += '</div></div></div>';
   }
@@ -283,18 +1231,19 @@ async function renderEpisodes() {
 // ── 管线操作 ──
 function renderPipeline() {
   document.getElementById('mainContent').innerHTML = `
-    <h4>管线操作</h4>
-    <div class="row mt-3">
-      <div class="col-md-7">
-        <div class="card mb-3"><div class="card-header">剧本管理</div><div class="card-body">
-          <div class="d-flex gap-2 mb-2">
-            <button class="btn btn-sm btn-outline-secondary" onclick="loadScript()">加载剧本</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="saveScript()">保存剧本</button>
-            <span class="text-muted ms-2" id="scriptStatus"></span>
+    <div class="page-header"><h4>管线操作</h4></div>
+    <div class="pipeline-layout">
+      <div>
+        <div class="script-section">
+          <div class="section-label">剧本管理</div>
+          <textarea class="form-control script-editor" id="scriptEditor" placeholder="点击「加载剧本」获取当前剧本内容..." style="min-height:160px"></textarea>
+          <div class="script-actions">
+            <button class="btn-script" onclick="loadScript()">加载剧本</button>
+            <button class="btn-script btn-save" onclick="saveScript()">保存剧本</button>
+            <span id="scriptStatus" style="align-self:center"></span>
           </div>
-          <textarea class="form-control script-editor" id="scriptEditor" placeholder="点击「加载剧本」获取当前剧本内容..."></textarea>
-        </div></div>
-        <h6 class="mt-3">执行步骤</h6>
+        </div>
+        <div class="section-label" style="margin-bottom:10px">执行步骤</div>
         ${buildStepBtn(1, '剧本拆解', 'analyze-script')}
         ${buildStepBtn(2, '结构校验', 'validate')}
         ${buildStepBtn(3, '场次拆镜头', 'scene-shots')}
@@ -303,22 +1252,26 @@ function renderPipeline() {
         ${buildStepBtn(6, '场景提示词', 'scene-prompts')}
         ${buildStepBtn(7, '场景图', 'scene-images')}
         ${buildStepBtn(8, '镜头视频', 'shot-videos', true)}
-        <div id="videoProgress" class="mt-2 d-none"></div>
+        <div id="videoProgress" style="display:none"></div>
       </div>
-      <div class="col-md-5">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <strong>执行日志</strong>
-          <button class="btn btn-sm btn-outline-secondary" onclick="clearLog()">清空</button>
+      <div>
+        <div class="log-panel">
+          <div class="log-panel-header">
+            <span class="log-title">执行日志</span>
+            <button class="btn-clear" onclick="clearLog()">清空</button>
+          </div>
+          <div class="log-area" id="logArea">等待操作...</div>
         </div>
-        <div class="log-area" id="logArea">等待操作...</div>
       </div>
     </div>`;
 }
 
 function buildStepBtn(n, label, endpoint, isAsync = false) {
-  return `<button class="btn btn-outline-dark step-btn" id="btn-${endpoint}" onclick="runStep('${endpoint}', ${isAsync})">
-    <span class="status-dot idle"></span>步骤${n}：${label}
-  </button><br>`;
+  return `<button class="step-btn" id="btn-${endpoint}" onclick="runStep('${endpoint}', ${isAsync})">
+    <span class="step-num">${n}</span>
+    <span class="status-dot idle"></span>
+    ${label}
+  </button>`;
 }
 
 // ── 剧本管理 ──
@@ -380,7 +1333,7 @@ async function runStep(endpoint, isAsync) {
 // ── 视频轮询 ──
 function pollVideoTask(taskId, endpoint, dot, btn) {
   const progressDiv = document.getElementById('videoProgress');
-  progressDiv.className = 'mt-2';
+  progressDiv.style.display = 'flex';
   if (videoPollTimer) clearInterval(videoPollTimer);
 
   videoPollTimer = setInterval(async () => {
@@ -393,20 +1346,18 @@ function pollVideoTask(taskId, endpoint, dot, btn) {
       clearInterval(videoPollTimer);
       dot.className = 'status-dot ok';
       btn.disabled = false;
-      progressDiv.className = 'mt-2 d-none';
+      progressDiv.style.display = 'none';
       log.textContent += `\n✓ 视频生成完成！成功 ${t.success_count}，失败 ${t.failed_count}\n`;
       if (t.failed.length) log.textContent += '失败列表:\n' + t.failed.join('\n') + '\n';
     } else if (t.status === 'failed') {
       clearInterval(videoPollTimer);
       dot.className = 'status-dot err';
       btn.disabled = false;
-      progressDiv.className = 'mt-2 d-none';
+      progressDiv.style.display = 'none';
       log.textContent += `\n✗ 视频生成失败: ${t.error}\n`;
     } else {
-      progressDiv.innerHTML = `<div class="d-flex align-items-center gap-2">
-        <div class="spinner-border spinner-border-sm text-warning"></div>
-        <small>${t.current_shot || '准备中'} · ARK: ${t.ark_status || '排队'} · 已完成 ${t.success_count}</small>
-      </div>`;
+      progressDiv.innerHTML = `<div class="spinner-border spinner-border-sm" style="width:14px;height:14px"></div>
+        <small>${t.current_shot || '准备中'} · ARK: ${t.ark_status || '排队'} · 已完成 ${t.success_count}</small>`;
       log.textContent += `.`;
     }
   }, 3000);
