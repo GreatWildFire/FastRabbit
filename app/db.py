@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS characters (
     gender TEXT DEFAULT '未知',
     height INTEGER DEFAULT 170,
     weight INTEGER DEFAULT 60,
+    hairstyle TEXT DEFAULT '',
+    face TEXT DEFAULT '',
+    clothing TEXT DEFAULT '',
+    accessories TEXT DEFAULT '',
+    build TEXT DEFAULT '',
+    expression TEXT DEFAULT '',
     description TEXT DEFAULT '',
     has_image INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -92,10 +98,27 @@ def _get_conn() -> sqlite3.Connection:
     return _local.conn
 
 
+def _migrate(db: sqlite3.Connection) -> None:
+    """迁移旧表结构：为已有 characters 表添加新的视觉字段列。"""
+    existing = {r[1] for r in db.execute("PRAGMA table_info(characters)").fetchall()}
+    new_cols = [
+        ("hairstyle", "TEXT DEFAULT ''"),
+        ("face", "TEXT DEFAULT ''"),
+        ("clothing", "TEXT DEFAULT ''"),
+        ("accessories", "TEXT DEFAULT ''"),
+        ("build", "TEXT DEFAULT ''"),
+        ("expression", "TEXT DEFAULT ''"),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in existing:
+            db.execute(f"ALTER TABLE characters ADD COLUMN {col_name} {col_def}")
+
+
 def init_db() -> None:
     """初始化数据库表（幂等）。"""
     conn = _get_conn()
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
 
 
@@ -312,9 +335,14 @@ def upsert_characters(project_name: str, characters: list[dict[str, Any]]) -> No
     db.execute("DELETE FROM characters WHERE project_id = ?", (proj_id,))
     for ch in characters:
         db.execute(
-            "INSERT INTO characters (project_id, name, age, gender, height, weight, description) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO characters (project_id, name, age, gender, height, weight, "
+            "hairstyle, face, clothing, accessories, build, expression, description) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (proj_id, ch["name"], ch.get("age", 25), ch.get("gender", "未知"),
-             ch.get("height", 170), ch.get("weight", 60), ch.get("description", "")),
+             ch.get("height", 170), ch.get("weight", 60),
+             ch.get("hairstyle", ""), ch.get("face", ""), ch.get("clothing", ""),
+             ch.get("accessories", ""), ch.get("build", ""), ch.get("expression", ""),
+             ch.get("description", "")),
         )
     db.commit()
 

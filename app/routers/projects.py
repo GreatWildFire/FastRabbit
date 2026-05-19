@@ -296,6 +296,12 @@ async def list_character_assets(name: str):
                 "name": char_name,
                 "age": data.get("age", ""),
                 "gender": data.get("gender", ""),
+                "hairstyle": as_text(data.get("hairstyle", "")),
+                "face": as_text(data.get("face", "")),
+                "clothing": as_text(data.get("clothing", "")),
+                "accessories": as_text(data.get("accessories", "")),
+                "build": as_text(data.get("build", "")),
+                "expression": as_text(data.get("expression", "")),
                 "description": as_text(data.get("description", "")),
                 "has_image": img_path.exists(),
                 "image_url": _asset_url(name, f"assets/characters/base/{img_path.name}") if img_path.exists() else None,
@@ -348,19 +354,25 @@ async def list_shot_assets(name: str):
         prompt_path = shot_dir / "video_prompt.json"
 
         action = ""
+        duration = 5
         if prompt_path.exists():
             try:
                 pd = read_json(prompt_path)
                 if isinstance(pd, dict):
                     action = as_text(pd.get("video_prompt", ""))
+                    duration = pd.get("duration", 5)
             except Exception:
                 pass
+
+        prompt_file = _asset_url(name, f"assets/shots/{shot_id}/video_prompt.json")
 
         shots.append({
             "shot_id": shot_id,
             "action": action,
+            "duration": duration,
             "has_video": video_path.exists(),
             "video_url": _asset_url(name, f"assets/shots/{shot_id}/{shot_id}.mp4") if video_path.exists() else None,
+            "prompt_file": prompt_file if prompt_path.exists() else None,
         })
     return {"success": True, "data": shots, "error": None}
 

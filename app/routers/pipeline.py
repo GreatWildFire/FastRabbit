@@ -25,6 +25,7 @@ from app.utils.text import (
     as_text, extract_json_object, normalize_payload, normalize_characters,
     parse_scene_num, sanitize_filename, normalize_gender, as_int, parse_shot_sort_key,
     normalize_style_tags, sanitize_prompt, build_character_description,
+    normalize_character, CHARACTER_VISUAL_FIELDS,
 )
 from app.db import (
     init_db, project_exists, create_project as db_create_project,
@@ -375,23 +376,18 @@ async def generate_character_profiles(
     for item in raw_characters:
         if not isinstance(item, dict):
             continue
-        name = as_text(item.get("name"))
-        if not name:
+        char = normalize_character(item)
+        if not char:
             continue
-        characters.append({
-            "name": name, "age": as_int(item.get("age"), 25),
-            "gender": normalize_gender(item.get("gender")),
-            "height": as_int(item.get("height"), 170),
-            "weight": as_int(item.get("weight"), 60),
-            "description": as_text(item.get("description"))
-                           or f"{name}是剧中的核心角色，具有鲜明的外貌与气质特征。",
-        })
+        characters.append(char)
         if len(characters) >= max_characters:
             break
 
     if not characters:
         characters = [{"name": "主角", "age": 25, "gender": "未知", "height": 170, "weight": 60,
-                        "description": "主角是剧中的核心人物。"}]
+                        "description": "主角是剧中的核心人物。",
+                        "hairstyle": "待补充", "face": "待补充", "clothing": "待补充",
+                        "accessories": "待补充", "build": "待补充", "expression": "待补充"}]
 
     characters_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
@@ -793,24 +789,54 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
                     shot_dir = shots_root / shot_id
                     shot_dir.mkdir(parents=True, exist_ok=True)
 
-                    # 角色参考图
+                    # 角色参考图 + 视觉描述
                     char_dir = project_root / "assets" / "characters" / "base"
                     char_paths: list[Path] = []
+                    char_details: list[str] = []
                     for cname in normalize_characters(shot.get("characters")):
                         cp = char_dir / f"{cname}.png"
                         if cp.exists():
                             char_paths.append(cp)
+                        # 读取角色卡 JSON 获取视觉描述
+                        cj = char_dir / f"{cname}.json"
+                        if cj.exists():
+                            try:
+                                from app.utils.text import character_to_human_prompt
+                                ch_data = read_json(cj)
+                                if isinstance(ch_data, dict):
+                                    char_details.append(character_to_human_prompt(ch_data))
+                            except Exception:
+                                pass
                         if len(char_paths) >= max(0, args.get("max_character_refs", 2)):
                             break
                     char_names = [p.stem for p in char_paths]
 
-                    # LLM 生成视频提示词
+                    # 读取场景图提示词
+                    scene_desc = ""
+                    scene_prompt_path = ep_dir / f"scene_{scene_id_val}" / "scene_prompt.json"
+                    if scene_prompt_path.exists():
+                        try:
+                            sp_data = read_json(scene_prompt_path)
+                            if isinstance(sp_data, dict):
+                                scene_desc = as_text(sp_data.get("scene_prompt", ""))
+                        except Exception:
+                            pass
+
+                    # 构建角色视觉参考文本
+                    char_visual_text = "\n".join(char_details) if char_details else "无详细角色视觉信息"
+                    scene_visual_text = scene_desc if scene_desc else (
+                        f"{as_text(scene_meta.get('location'))}，{as_text(scene_meta.get('time'))}"
+                    )
+
+                    # LLM 生成视频提示词（含丰富视觉上下文）
+                    use_last_frame = not args.get("disable_last_frame_chain", False)
                     user_prompt = (
-                        f"目标集: {episode_id}\n目标场: {json.dumps(scene_meta, ensure_ascii=False)}\n"
-                        f"目标镜头: {json.dumps(shot, ensure_ascii=False)}\n"
-                        f"可用场景参考图: {'有' if scene_image_path.exists() else '无'}\n"
-                        f"可用角色参考图: {char_names}\n"
-                        f"是否有上一镜头尾帧: {'是' if previous_last_frame_url else '否'}\n\n"
+                        f"目标集: {episode_id}\n"
+                        f"目标场: {json.dumps(scene_meta, ensure_ascii=False)}\n"
+                        f"目标镜头: {json.dumps(shot, ensure_ascii=False)}\n\n"
+                        f"━━━ 角色参考（角色外观必须严格遵循）━━━\n{char_visual_text}\n\n"
+                        f"━━━ 场景参考（场景环境必须严格遵循）━━━\n{scene_visual_text}\n\n"
+                        f"上一镜头尾帧可用: {'是，首帧需从上一镜头末态自然衔接' if (use_last_frame and previous_last_frame_url) else '否'}\n\n"
                         f"【本集完整剧本】\n{script_text}\n"
                     )
                     llm_payload = _llm_json(llm_client, args["llm_model"], system_prompt, user_prompt)
@@ -832,18 +858,17 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
                     if ratio not in {"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}:
                         ratio = "16:9"
 
-                    use_last_frame = not args.get("disable_last_frame_chain", False)
-
                     prompt_data = {"video_prompt": video_prompt, "negative_prompt": neg_prompt,
                                    "duration": duration, "ratio": ratio}
                     write_json(shot_dir / "video_prompt.json", prompt_data)
 
-                    # 构建 content items
+                    # 构建 content items（参考图 + 参考视频）
                     content_items: list[dict[str, Any]] = [
                         {"type": "text", "text": f"{video_prompt}。避免：{neg_prompt}"}
                     ]
                     ref_plan: list[dict[str, str]] = []
 
+                    # 上一镜头尾帧（首尾帧衔接）
                     if use_last_frame and previous_last_frame_url:
                         content_items.append({
                             "type": "image_url", "image_url": {"url": previous_last_frame_url},
@@ -851,6 +876,7 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
                         })
                         ref_plan.append({"type": "last_frame_url", "value": previous_last_frame_url})
 
+                    # 场景参考图
                     if scene_image_path.exists():
                         scene_data_url = to_data_url(scene_image_path)
                         content_items.append({
@@ -859,6 +885,7 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
                         })
                         ref_plan.append({"type": "scene_image", "value": str(scene_image_path)})
 
+                    # 角色参考图
                     for cp in char_paths:
                         char_data_url = to_data_url(cp)
                         content_items.append({
@@ -866,6 +893,41 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
                             "role": "reference_image",
                         })
                         ref_plan.append({"type": "character_image", "value": str(cp)})
+
+                    # 参考视频：上一镜头生成的视频（运动/风格连续性）
+                    previous_video_path = None
+                    if args.get("use_reference_video", True) and not args.get("disable_last_frame_chain", False):
+                        # 找上一个镜头的视频
+                        for prev_shot in valid_shots:
+                            prev_sid = as_text(prev_shot.get("shot_id"))
+                            if prev_sid == shot_id:
+                                break
+                            prev_video = shots_root / prev_sid / f"{prev_sid}.mp4"
+                            if prev_video.exists():
+                                previous_video_path = prev_video
+                        if previous_video_path:
+                            try:
+                                video_data_url = to_data_url(previous_video_path)
+                                content_items.append({
+                                    "type": "video_url", "video_url": {"url": video_data_url},
+                                    "role": "reference_video",
+                                })
+                                ref_plan.append({"type": "reference_video", "value": str(previous_video_path)})
+                            except Exception:
+                                pass
+
+                    # 全局风格参考视频（从 VIDEO_REFERENCE_URL 环境变量读取，可选）
+                    style_ref_url = os.environ.get("VIDEO_REFERENCE_URL", "")
+                    if style_ref_url and not previous_video_path:
+                        # 检查是否为当前 scene 的第一个镜头
+                        shot_ids_in_scene = [as_text(s.get("shot_id")) for s in valid_shots]
+                        is_first_shot = (shot_ids_in_scene.index(shot_id) == 0) if shot_id in shot_ids_in_scene else True
+                        if is_first_shot:
+                            content_items.append({
+                                "type": "video_url", "video_url": {"url": style_ref_url},
+                                "role": "reference_video",
+                            })
+                            ref_plan.append({"type": "style_reference_video", "value": style_ref_url})
 
                     asset_plan = {
                         "episode_id": episode_id, "scene_id": scene_id_val, "shot_id": shot_id,
@@ -963,6 +1025,7 @@ async def start_shot_videos(
     max_wait_sec: int = 900,
     max_character_refs: int = 2,
     disable_last_frame_chain: bool = False,
+    use_reference_video: bool = True,
     dry_run: bool = False,
 ):
     """步骤8：生成镜头视频（异步）。返回 task_id，通过 /video-status/{task_id} 轮询。"""
@@ -997,6 +1060,7 @@ async def start_shot_videos(
         "poll_interval": poll_interval, "max_wait_sec": max_wait_sec,
         "max_character_refs": max_character_refs,
         "disable_last_frame_chain": disable_last_frame_chain,
+        "use_reference_video": use_reference_video,
         "dry_run": dry_run, "ark_key": ark_key, "deepseek_key": deepseek_key,
         "total_episodes": total_episodes,
     }

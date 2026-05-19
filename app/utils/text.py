@@ -204,3 +204,50 @@ def build_character_description(character: dict[str, Any]) -> str:
         f"{description}，单人半身肖像，二次元动漫风格，anime style，cel shading，"
         "clean lineart，detailed illustration，soft lighting，干净背景。"
     )
+
+
+# 角色卡的视觉字段名列表
+CHARACTER_VISUAL_FIELDS = ["hairstyle", "face", "clothing", "accessories", "build", "expression"]
+
+
+def normalize_character(item: dict[str, Any]) -> dict[str, Any]:
+    """将 LLM 返回的角色数据标准化，补全缺失字段。"""
+    name = as_text(item.get("name"))
+    if not name:
+        return {}
+
+    char: dict[str, Any] = {
+        "name": name,
+        "age": as_int(item.get("age"), 25),
+        "gender": normalize_gender(item.get("gender")),
+        "height": as_int(item.get("height"), 170),
+        "weight": as_int(item.get("weight"), 60),
+        "description": as_text(item.get("description")) or f"{name}是剧中的核心角色。",
+    }
+
+    # 新视觉字段：保留 LLM 输出，若缺失则从 description 提取或填空
+    for field in CHARACTER_VISUAL_FIELDS:
+        value = as_text(item.get(field))
+        char[field] = value if value else "待补充"
+
+    return char
+
+
+def character_to_human_prompt(char: dict[str, Any]) -> str:
+    """将结构化角色卡转为人类可读的视觉描述文本（用于 LLM 输入）。"""
+    parts = []
+    name = as_text(char.get("name")) or "角色"
+    parts.append(f"角色名称：{name}")
+
+    for field in CHARACTER_VISUAL_FIELDS:
+        value = as_text(char.get(field))
+        if value and value != "待补充":
+            label = {"hairstyle": "发型", "face": "面部", "clothing": "服装",
+                     "accessories": "配饰", "build": "体型", "expression": "表情"}.get(field, field)
+            parts.append(f"{label}：{value}")
+
+    desc = as_text(char.get("description"))
+    if desc:
+        parts.append(f"综合描述：{desc}")
+
+    return "\n".join(parts)

@@ -1128,14 +1128,21 @@ async function loadCharacterGallery() {
 
   let cards = '';
   res.data.forEach(c => {
+    const details = [];
+    if (c.clothing && c.clothing !== '待补充') details.push(`👔 ${c.clothing}`);
+    if (c.hairstyle && c.hairstyle !== '待补充') details.push(`💇 ${c.hairstyle}`);
+    if (c.accessories && c.accessories !== '待补充') details.push(`💍 ${c.accessories}`);
+    if (c.expression && c.expression !== '待补充') details.push(`😶 ${c.expression}`);
+    if (c.build && c.build !== '待补充') details.push(`📐 ${c.build}`);
+    if (c.face && c.face !== '待补充') details.push(`👤 ${c.face}`);
+
     cards += `<div class="gallery-card">
-      ${c.has_image ? `<img src="${c.image_url}" style="height:240px" alt="${c.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-         <div class="card-img-placeholder" style="height:240px;display:none"><span>无图片</span></div>`
-       : `<div class="card-img-placeholder" style="height:240px"><span>暂无角色图</span></div>`}
+      ${c.has_image ? `<img src="${c.image_url}" style="height:260px" alt="${c.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="card-img-placeholder" style="height:260px;display:none"><span>无图片</span></div>`
+       : `<div class="card-img-placeholder" style="height:260px"><span>暂无角色图</span></div>`}
       <div class="card-body">
-        <div class="card-title">${c.name}</div>
-        <div class="card-meta">${c.gender || ''} · ${c.age || ''}岁</div>
-        <div class="card-desc">${c.description || ''}</div>
+        <div class="card-title">${c.name} <small style="color:var(--text-muted)">${c.gender || ''} · ${c.age || ''}岁</small></div>
+        ${details.length ? details.map(d => `<div class="card-desc" style="-webkit-line-clamp:unset">${d}</div>`).join('') : `<div class="card-meta">${c.description || '暂无详细信息'}</div>`}
       </div>
     </div>`;
   });
@@ -1175,14 +1182,14 @@ async function loadShotGallery() {
   if (withVideo.length > 0) {
     html += '<div style="font-size:12px;color:var(--text-muted);margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.6px">已生成视频</div><div class="gallery-grid">';
     withVideo.forEach(s => {
-      html += `<div class="gallery-card">
+      html += `<div class="gallery-card" style="position:relative">
         <video controls style="width:100%;max-height:280px" preload="metadata">
           <source src="${s.video_url}" type="video/mp4">
-          您的浏览器不支持视频播放
         </video>
         <div class="card-body">
-          <div class="card-title">${s.shot_id}</div>
-          <div class="card-desc">${s.action || '无描述'}</div>
+          <div class="card-title">${s.shot_id} <span style="font-weight:400;font-size:11px;color:var(--teal)">${s.duration ? s.duration+'s' : ''}</span></div>
+          <div class="card-desc" style="-webkit-line-clamp:3" title="${(s.action || '').replace(/"/g,'&quot;')}">${s.action || '无描述'}</div>
+          ${s.prompt_file ? `<a href="${s.prompt_file}" target="_blank" class="btn-script" style="display:inline-block;margin-top:6px;font-size:10px;padding:2px 8px;text-decoration:none">查看提示词</a>` : ''}
         </div>
       </div>`;
     });
@@ -1190,9 +1197,17 @@ async function loadShotGallery() {
   }
 
   if (noVideo.length > 0) {
-    html += `<div style="font-size:12px;color:var(--text-muted);margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.6px">待生成 (${noVideo.length})</div>
-      <div class="log-area" style="max-height:160px;border-radius:var(--radius)">`;
-    noVideo.forEach(s => { html += `${s.shot_id}: ${s.action || '无描述'}\n`; });
+    html += '<div style="font-size:12px;color:var(--text-muted);margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.6px">待生成 (' + noVideo.length + ')</div><div class="gallery-grid">';
+    noVideo.forEach(s => {
+      html += `<div class="gallery-card">
+        <div class="card-img-placeholder" style="height:120px"><span>未生成</span></div>
+        <div class="card-body">
+          <div class="card-title">${s.shot_id}</div>
+          <div class="card-desc" style="-webkit-line-clamp:3">${s.action || '无描述'}</div>
+          ${s.prompt_file ? `<a href="${s.prompt_file}" target="_blank" class="btn-script" style="display:inline-block;margin-top:6px;font-size:10px;padding:2px 8px;text-decoration:none">查看提示词</a>` : ''}
+        </div>
+      </div>`;
+    });
     html += '</div>';
   }
 
@@ -1252,6 +1267,31 @@ function renderPipeline() {
         ${buildStepBtn(6, '场景提示词', 'scene-prompts')}
         ${buildStepBtn(7, '场景图', 'scene-images')}
         ${buildStepBtn(8, '镜头视频', 'shot-videos', true)}
+        <div class="step-options" id="videoOpts" style="background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:none">
+          <div class="section-label" style="margin-bottom:8px">视频选项</div>
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label" style="font-size:11px;color:var(--text-muted)">集数筛选</label>
+              <input type="number" class="form-control form-control-sm" id="vidEpisode" value="0" min="0" style="background:var(--bg-root);color:var(--text-primary);border:1px solid var(--border-normal);border-radius:var(--radius-sm);font-size:12px;padding:4px 8px">
+            </div>
+            <div class="col-4">
+              <label class="form-label" style="font-size:11px;color:var(--text-muted)">场景筛选</label>
+              <input type="text" class="form-control form-control-sm" id="vidScene" value="" placeholder="如 S01" style="background:var(--bg-root);color:var(--text-primary);border:1px solid var(--border-normal);border-radius:var(--radius-sm);font-size:12px;padding:4px 8px">
+            </div>
+            <div class="col-4">
+              <label class="form-label" style="font-size:11px;color:var(--text-muted)">镜头筛选</label>
+              <input type="text" class="form-control form-control-sm" id="vidShot" value="" placeholder="如 S01_SH01" style="background:var(--bg-root);color:var(--text-primary);border:1px solid var(--border-normal);border-radius:var(--radius-sm);font-size:12px;padding:4px 8px">
+            </div>
+          </div>
+          <div class="d-flex gap-3 mt-2 align-items-center">
+            <label class="form-check" style="font-size:12px;color:var(--text-secondary)">
+              <input type="checkbox" id="vidDryRun" class="form-check-input" style="accent-color:var(--teal)"> 仅生成提示词(dry-run)
+            </label>
+            <label class="form-check" style="font-size:12px;color:var(--text-secondary)">
+              <input type="checkbox" id="vidRefVideo" class="form-check-input" checked style="accent-color:var(--accent)"> 使用参考视频
+            </label>
+          </div>
+        </div>
         <div id="videoProgress" style="display:none"></div>
       </div>
       <div>
@@ -1298,16 +1338,44 @@ async function saveScript() {
 // ── 执行步骤 ──
 async function runStep(endpoint, isAsync) {
   if (!currentProject) return alert('请先选择项目');
+
+  // 步骤8：显示/隐藏视频选项面板
+  if (endpoint === 'shot-videos') {
+    const opts = document.getElementById('videoOpts');
+    opts.style.display = opts.style.display === 'none' ? 'block' : 'none';
+    if (opts.style.display === 'block') return; // 第一次点击：展开选项
+  }
+
   const btn = document.getElementById(`btn-${endpoint}`);
   const dot = btn.querySelector('.status-dot');
   dot.className = 'status-dot running';
   btn.disabled = true;
+  // 收起选项面板
+  if (endpoint === 'shot-videos') document.getElementById('videoOpts').style.display = 'none';
 
   const log = document.getElementById('logArea');
   log.textContent = `[${new Date().toLocaleTimeString()}] 开始执行 ${endpoint}...\n`;
 
+  // 收集视频步骤参数
+  let query = '';
+  if (endpoint === 'shot-videos') {
+    const params = new URLSearchParams();
+    const ep = document.getElementById('vidEpisode')?.value || '0';
+    const sc = document.getElementById('vidScene')?.value || '';
+    const sh = document.getElementById('vidShot')?.value || '';
+    const dry = document.getElementById('vidDryRun')?.checked || false;
+    const refVid = document.getElementById('vidRefVideo')?.checked !== false; // default true
+    if (ep !== '0') params.set('episode', ep);
+    if (sc) params.set('scene_id', sc);
+    if (sh) params.set('shot_id', sh);
+    if (dry) params.set('dry_run', 'true');
+    if (!refVid) params.set('use_reference_video', 'false');
+    query = params.toString();
+  }
+
   try {
-    const res = await fetch(`${API}/projects/${currentProject}/pipeline/${endpoint}`, { method: 'POST' });
+    const url = `${API}/projects/${currentProject}/pipeline/${endpoint}` + (query ? `?${query}` : '');
+    const res = await fetch(url, { method: 'POST' });
     const data = await res.json();
 
     if (isAsync && data.success && data.data?.task_id) {
