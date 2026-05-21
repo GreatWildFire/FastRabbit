@@ -989,46 +989,85 @@ body::after {
 <script>
 const API = '/api';
 let currentProject = '';
-let videoPollTimer = null;
+let pipelineRendered = false;
+let taskTimers = new Map();  // task_id → intervalId
+let taskStates = new Map();  // task_id → {endpoint, dot, btn}
 let createModal = null;
 
 // ── 初始化 Bootstrap Modal ──
 document.addEventListener('DOMContentLoaded', () => {
   createModal = new bootstrap.Modal(document.getElementById('createModal'));
-});
-
-// ── 导航切换 ──
-document.getElementById('navTabs').addEventListener('click', e => {
-  if (e.target.dataset.tab) {
-    document.querySelectorAll('#navTabs .nav-link').forEach(l => l.classList.remove('active'));
-    e.target.classList.add('active');
-    renderTab(e.target.dataset.tab);
+  // 初始化持久容器
+  const mc = document.getElementById('mainContent');
+  if (!document.getElementById('tab-overview')) {
+    mc.innerHTML = `
+      <div id="tab-overview" class="tab-panel"></div>
+      <div id="tab-episodes" class="tab-panel" style="display:none"></div>
+      <div id="tab-pipeline" class="tab-panel" style="display:none"></div>`;
   }
 });
 
-// ── 加载项目列表 ──
-async function loadProjects() {
-  const res = await fetch(`${API}/projects`).then(r => r.json());
-  const sel = document.getElementById('projectSelect');
-  sel.innerHTML = '<option value="">-- 选择项目 --</option>';
-  if (res.data) res.data.forEach(p => {
-    sel.innerHTML += `<option value="${p.name}">${p.name}${p.status ? ' [' + p.status + ']' : ''}</option>`;
-  });
+// ── 导航切换（仅切换显示/隐藏，不重建内容）──
+document.getElementById('navTabs').addEventListener('click', e => {
+  if (e.target.dataset.tab && currentProject) {
+    document.querySelectorAll('#navTabs .nav-link').forEach(l => l.classList.remove('active'));
+    e.target.classList.add('active');
+    switchTab(e.target.dataset.tab);
+  }
+});
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  const panel = document.getElementById(`tab-${tab}`);
+  if (panel) panel.style.display = 'block';
+  // 概览/集场景每次切换时刷新数据
+  if (tab === 'overview') refreshOverview();
+  else if (tab === 'episodes') refreshEpisodes();
 }
 
-// ── 选择项目 ──
+// ── 加载项目列表 ──
+async function loadProjects() {
+  try {
+    const res = await fetch(`${API}/projects`).then(r => r.json());
+    const sel = document.getElementById('projectSelect');
+    sel.innerHTML = '<option value="">-- 选择项目 --</option>';
+    if (Array.isArray(res.data)) res.data.forEach(p => {
+      sel.innerHTML += `<option value="${p.name}">${p.name}${p.status ? ' [' + p.status + ']' : ''}</option>`;
+    });
+  } catch (e) {
+    console.error('加载项目列表失败:', e);
+    document.getElementById('projectSelect').innerHTML = '<option value="">加载失败，请刷新重试</option>';
+  }
+}
+
+// ── 选择项目（渲染所有 tab 容器，仅显示活跃 tab）──
 function selectProject() {
+  // 清理上一个项目的异步任务定时器
+  taskTimers.forEach(timer => clearInterval(timer));
+  taskTimers.clear();
+  taskStates.clear();
+
   currentProject = document.getElementById('projectSelect').value;
-  if (currentProject) {
-    const activeTab = document.querySelector('#navTabs .nav-link.active');
-    renderTab(activeTab ? activeTab.dataset.tab : 'overview');
-  } else {
-    document.getElementById('mainContent').innerHTML = `
+  if (!currentProject) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+    document.getElementById('tab-overview').style.display = 'block';
+    document.getElementById('tab-overview').innerHTML = `
       <div style="display:flex;align-items:center;justify-content:center;height:60vh;flex-direction:column;gap:12px">
         <div style="font-size:48px;opacity:0.2">▶</div>
         <p style="color:var(--text-muted);font-size:15px">请选择一个项目开始</p>
       </div>`;
+    return;
   }
+  pipelineRendered = false;
+  const activeTab = document.querySelector('#navTabs .nav-link.active');
+  const tab = activeTab ? activeTab.dataset.tab : 'overview';
+  // 渲染所有 tab
+  refreshOverview();
+  refreshEpisodes();
+  renderPipeline();
+  pipelineRendered = true;
+  // 只显示当前 tab
+  switchTab(tab);
 }
 
 // ── 创建项目弹窗 ──
@@ -1057,37 +1096,20 @@ async function createProject() {
   }
 }
 
-// ── Tab 渲染 ──
-async function renderTab(tab) {
-  if (!currentProject) return;
-  const main = document.getElementById('mainContent');
-  main.style.opacity = '0';
-  main.style.transform = 'translateY(6px)';
-  main.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
-
-  if (tab === 'overview') await renderOverview();
-  else if (tab === 'episodes') await renderEpisodes();
-  else if (tab === 'pipeline') renderPipeline();
-
-  requestAnimationFrame(() => {
-    main.style.opacity = '1';
-    main.style.transform = 'translateY(0)';
-  });
-}
-
 // ── 概览 ──
-async function renderOverview() {
+async function refreshOverview() {
+  if (!currentProject) return;
   const res = await fetch(`${API}/projects/${currentProject}`).then(r => r.json());
-  if (!res.success) { document.getElementById('mainContent').innerHTML = `<div class="alert alert-danger">${res.error}</div>`; return; }
+  if (!res.success) { document.getElementById('tab-overview').innerHTML = `<div class="alert alert-danger">${res.error}</div>`; return; }
   const d = res.data;
   let eps = (d.episodes || []).map(e => `
     <tr><td>${e.episode_id || ''}</td><td>${e.title || ''}</td><td>${e.scene_count || 0} 场</td></tr>`).join('');
-  document.getElementById('mainContent').innerHTML = `
+  document.getElementById('tab-overview').innerHTML = `
     <div class="page-header">
       <h4>${d.name || ''}<span class="badge-status">${d.status || 'unknown'}</span></h4>
     </div>
     <div class="stat-cards">
-      <div class="stat-card card-episodes" onclick="/* overview */">
+      <div class="stat-card card-episodes">
         <div class="stat-icon">▣</div>
         <div class="stat-label">总集数</div>
         <div class="stat-value">${d.total_episodes || 0}</div>
@@ -1137,7 +1159,7 @@ async function loadCharacterGallery() {
     if (c.face && c.face !== '待补充') details.push(`👤 ${c.face}`);
 
     cards += `<div class="gallery-card">
-      ${c.has_image ? `<img src="${c.image_url}" style="height:260px" alt="${c.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      ${c.has_image ? `<img src="${c.image_url}" style="height:260px" alt="${c.name}" onerror="this.style.display='none';this.parentElement.querySelector('.card-img-placeholder').style.display='flex'">
          <div class="card-img-placeholder" style="height:260px;display:none"><span>无图片</span></div>`
        : `<div class="card-img-placeholder" style="height:260px"><span>暂无角色图</span></div>`}
       <div class="card-body">
@@ -1159,7 +1181,7 @@ async function loadSceneGallery() {
   let cards = '';
   res.data.forEach(s => {
     cards += `<div class="gallery-card">
-      <img src="${s.image_url}" style="height:200px" alt="${s.filename}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <img src="${s.image_url}" style="height:200px" alt="${s.filename}" onerror="this.style.display='none';this.parentElement.querySelector('.card-img-placeholder').style.display='flex'">
       <div class="card-img-placeholder" style="height:200px;display:none"><span>加载失败</span></div>
       <div class="card-body"><div class="card-title">${s.episode_id} ${s.scene_id}</div></div>
     </div>`;
@@ -1215,9 +1237,10 @@ async function loadShotGallery() {
 }
 
 // ── 集 & 场景 ──
-async function renderEpisodes() {
+async function refreshEpisodes() {
+  if (!currentProject) return;
   const res = await fetch(`${API}/projects/${currentProject}/episodes`).then(r => r.json());
-  if (!res.success) { document.getElementById('mainContent').innerHTML = `<div class="alert alert-danger">${res.error}</div>`; return; }
+  if (!res.success) { document.getElementById('tab-episodes').innerHTML = `<div class="alert alert-danger">${res.error}</div>`; return; }
   let html = '<div class="page-header"><h4>集 & 场景</h4></div>';
   for (const ep of res.data) {
     const scenes = ep.scenes || [];
@@ -1240,12 +1263,13 @@ async function renderEpisodes() {
     }
     html += '</div></div></div>';
   }
-  document.getElementById('mainContent').innerHTML = html;
+  document.getElementById('tab-episodes').innerHTML = html;
 }
 
-// ── 管线操作 ──
+// ── 管线操作（仅首次渲染，切换 tab 不重建）──
 function renderPipeline() {
-  document.getElementById('mainContent').innerHTML = `
+  if (pipelineRendered) return;
+  document.getElementById('tab-pipeline').innerHTML = `
     <div class="page-header"><h4>管线操作</h4></div>
     <div class="pipeline-layout">
       <div>
@@ -1263,9 +1287,9 @@ function renderPipeline() {
         ${buildStepBtn(2, '结构校验', 'validate')}
         ${buildStepBtn(3, '场次拆镜头', 'scene-shots')}
         ${buildStepBtn(4, '角色卡', 'character-profiles')}
-        ${buildStepBtn(5, '角色图', 'character-images')}
+        ${buildStepBtn(5, '角色图', 'character-images', true)}
         ${buildStepBtn(6, '场景提示词', 'scene-prompts')}
-        ${buildStepBtn(7, '场景图', 'scene-images')}
+        ${buildStepBtn(7, '场景图', 'scene-images', true)}
         ${buildStepBtn(8, '镜头视频', 'shot-videos', true)}
         <div class="step-options" id="videoOpts" style="background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:none">
           <div class="section-label" style="margin-bottom:8px">视频选项</div>
@@ -1322,36 +1346,46 @@ async function loadScript() {
   document.getElementById('scriptStatus').textContent = res.data?.content ? `已加载 (${res.data.content.length} 字)` : '';
 }
 
+let _saveId = 0;
 async function saveScript() {
   if (!currentProject) return alert('请先选择项目');
-  const text = document.getElementById('scriptEditor').value;
+  const text = document.getElementById('scriptEditor')?.value || '';
+  const saveId = ++_saveId;
   const res = await fetch(`${API}/projects/${currentProject}/upload-script`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ script_text: text }),
   });
   const data = await res.json();
-  document.getElementById('scriptStatus').textContent = data.success ? '✓ 已保存' : '✗ 保存失败';
-  setTimeout(() => { document.getElementById('scriptStatus').textContent = ''; }, 2000);
+  const statusEl = document.getElementById('scriptStatus');
+  if (statusEl) statusEl.textContent = data.success ? '✓ 已保存' : '✗ 保存失败';
+  setTimeout(() => {
+    if (saveId === _saveId && statusEl) statusEl.textContent = '';
+  }, 2000);
 }
 
 // ── 执行步骤 ──
 async function runStep(endpoint, isAsync) {
   if (!currentProject) return alert('请先选择项目');
 
-  // 步骤8：显示/隐藏视频选项面板
+  // 防止重复点击（所有步骤）
+  const btn = document.getElementById(`btn-${endpoint}`);
+  if (!btn || btn.disabled) return;
+
+  // 步骤8：显示/隐藏视频选项面板（第一次点击展开，第二次执行）
   if (endpoint === 'shot-videos') {
     const opts = document.getElementById('videoOpts');
-    opts.style.display = opts.style.display === 'none' ? 'block' : 'none';
-    if (opts.style.display === 'block') return; // 第一次点击：展开选项
+    if (!opts) return;
+    if (opts.style.display === 'none' || !opts.style.display) {
+      opts.style.display = 'block';
+      return;
+    }
+    opts.style.display = 'none';
   }
 
-  const btn = document.getElementById(`btn-${endpoint}`);
   const dot = btn.querySelector('.status-dot');
   dot.className = 'status-dot running';
   btn.disabled = true;
-  // 收起选项面板
-  if (endpoint === 'shot-videos') document.getElementById('videoOpts').style.display = 'none';
 
   const log = document.getElementById('logArea');
   log.textContent = `[${new Date().toLocaleTimeString()}] 开始执行 ${endpoint}...\n`;
@@ -1364,7 +1398,7 @@ async function runStep(endpoint, isAsync) {
     const sc = document.getElementById('vidScene')?.value || '';
     const sh = document.getElementById('vidShot')?.value || '';
     const dry = document.getElementById('vidDryRun')?.checked || false;
-    const refVid = document.getElementById('vidRefVideo')?.checked !== false; // default true
+    const refVid = document.getElementById('vidRefVideo')?.checked !== false;
     if (ep !== '0') params.set('episode', ep);
     if (sc) params.set('scene_id', sc);
     if (sh) params.set('shot_id', sh);
@@ -1379,9 +1413,9 @@ async function runStep(endpoint, isAsync) {
     const data = await res.json();
 
     if (isAsync && data.success && data.data?.task_id) {
-      log.textContent += `任务已创建: ${data.data.task_id}\n开始轮询...\n`;
+      log.textContent += `异步任务已创建: ${data.data.task_id}\n`;
       dot.className = 'status-dot running';
-      pollVideoTask(data.data.task_id, endpoint, dot, btn);
+      pollAsyncTask(data.data.task_id, endpoint, dot, btn);
     } else if (data.success) {
       log.textContent += `✓ 成功\n${JSON.stringify(data.data, null, 2)}\n`;
       dot.className = 'status-dot ok';
@@ -1398,37 +1432,50 @@ async function runStep(endpoint, isAsync) {
   }
 }
 
-// ── 视频轮询 ──
-function pollVideoTask(taskId, endpoint, dot, btn) {
+// ── 异步任务轮询（步骤5/7/8通用，支持多任务并发）──
+function pollAsyncTask(taskId, endpoint, dot, btn) {
   const progressDiv = document.getElementById('videoProgress');
   progressDiv.style.display = 'flex';
-  if (videoPollTimer) clearInterval(videoPollTimer);
 
-  videoPollTimer = setInterval(async () => {
-    const res = await fetch(`${API}/projects/${currentProject}/pipeline/video-status/${taskId}`).then(r => r.json());
+  // 清除同 endpoint 的旧定时器
+  if (taskTimers.has(taskId)) clearInterval(taskTimers.get(taskId));
+  taskStates.set(taskId, {endpoint, dot, btn});
+
+  const timer = setInterval(async () => {
+    const res = await fetch(`${API}/projects/${currentProject}/pipeline/task-status/${taskId}`).then(r => r.json());
     if (!res.success) return;
     const t = res.data;
     const log = document.getElementById('logArea');
 
     if (t.status === 'succeeded') {
-      clearInterval(videoPollTimer);
+      clearInterval(timer);
+      taskTimers.delete(taskId);
+      taskStates.delete(taskId);
       dot.className = 'status-dot ok';
       btn.disabled = false;
-      progressDiv.style.display = 'none';
-      log.textContent += `\n✓ 视频生成完成！成功 ${t.success_count}，失败 ${t.failed_count}\n`;
-      if (t.failed.length) log.textContent += '失败列表:\n' + t.failed.join('\n') + '\n';
+      if (taskTimers.size === 0) progressDiv.style.display = 'none';
+      log.textContent += `\n✓ 完成！成功 ${t.success_count}，失败 ${t.failed_count} (${t.task_type})\n`;
+      if (t.failed && t.failed.length) log.textContent += '失败:\n' + t.failed.join('\n') + '\n';
     } else if (t.status === 'failed') {
-      clearInterval(videoPollTimer);
+      clearInterval(timer);
+      taskTimers.delete(taskId);
+      taskStates.delete(taskId);
       dot.className = 'status-dot err';
       btn.disabled = false;
-      progressDiv.style.display = 'none';
-      log.textContent += `\n✗ 视频生成失败: ${t.error}\n`;
+      if (taskTimers.size === 0) progressDiv.style.display = 'none';
+      log.textContent += `\n✗ 失败 (${t.task_type}): ${t.error}\n`;
     } else {
-      progressDiv.innerHTML = `<div class="spinner-border spinner-border-sm" style="width:14px;height:14px"></div>
-        <small>${t.current_shot || '准备中'} · ARK: ${t.ark_status || '排队'} · 已完成 ${t.success_count}</small>`;
-      log.textContent += `.`;
+      const pct = t.progress_total > 0 ? Math.round(t.progress_current / t.progress_total * 100) : 0;
+      progressDiv.innerHTML = `<div style="flex:1">
+        <div class="d-flex align-items-center gap-2">
+          <div class="spinner-border spinner-border-sm" style="width:14px;height:14px"></div>
+          <small>${t.task_type}: ${t.current_item || t.status} · ${pct}% (${t.progress_current}/${t.progress_total}) · 完成 ${t.success_count}</small>
+        </div>
+        <div class="progress progress-thin mt-1" style="background:rgba(255,255,255,0.06)"><div class="progress-bar" style="width:${pct}%;background:var(--accent)"></div></div>
+      </div>`;
     }
-  }, 3000);
+  }, 2000);
+  taskTimers.set(taskId, timer);
 }
 
 function clearLog() { document.getElementById('logArea').textContent = ''; }

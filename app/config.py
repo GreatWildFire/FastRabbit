@@ -81,5 +81,11 @@ def get_script_path(relative_path: str) -> Path:
 
 
 def get_project_path(name: str) -> Path:
-    """返回项目目录的绝对路径。"""
-    return (REPO_ROOT / name).resolve()
+    """返回项目目录的绝对路径，拒绝路径穿越。"""
+    sanitized = name.lstrip("/").replace("\\", "/").strip()
+    if not sanitized or ".." in sanitized or sanitized.startswith("/") or sanitized.startswith("~"):
+        raise ValueError(f"非法项目名称: {name}")
+    resolved = (REPO_ROOT / sanitized).resolve()
+    if not str(resolved).startswith(str(REPO_ROOT.resolve())):
+        raise ValueError(f"项目路径越权: {name}")
+    return resolved

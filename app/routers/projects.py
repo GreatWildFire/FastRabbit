@@ -146,7 +146,10 @@ async def get_script(name: str):
             if not sp.exists():
                 sp = REPO_ROOT / fname
             if sp.exists():
-                script_text = sp.read_text(encoding="utf-8")
+                try:
+                    script_text = sp.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    script_text = sp.read_text(encoding="utf-8", errors="replace")
                 break
 
     return {"success": True, "data": {"content": script_text}, "error": None}
@@ -221,8 +224,10 @@ async def list_episodes(name: str):
         from app.utils.text import as_text
         project_root = get_project_path(name)
         analysis_root = project_root / "script_analysis"
-        for ep_idx in range(1, 10):
+        for ep_idx in range(1, 100):
             ep_dir = analysis_root / f"ep_{ep_idx:02d}"
+            if not ep_dir.exists():
+                continue
             scenes_path = ep_dir / "scenes.json"
             if scenes_path.exists():
                 try:

@@ -42,6 +42,58 @@ _DEFAULT_LLM_MODEL = get_llm_config().model or "deepseek-v4-flash"
 _DEFAULT_IMAGE_MODEL = get_image_config().model or "nano-banana-fast"
 _DEFAULT_VIDEO_MODEL = get_video_config().model or "doubao-seedance-2-0-250528"
 
+# ── 通用异步任务管理器 ──────────────────────────────────────────
+
+import asyncio  # noqa: E402
+import uuid  # noqa: E402
+
+_task_store: dict[str, dict[str, Any]] = {}
+
+
+def _create_task(task_type: str, extra: dict[str, Any] | None = None) -> str:
+    """创建异步任务，返回 task_id。"""
+    task_id = uuid.uuid4().hex[:12]
+    base = {
+        "task_id": task_id, "task_type": task_type, "status": "running",
+        "progress_current": 0, "progress_total": 0, "current_item": "",
+        "success_count": 0, "failed_count": 0, "failed": [], "error": None,
+    }
+    if extra:
+        base.update(extra)
+    _task_store[task_id] = base
+    return task_id
+
+
+def _start_async_task(name: str, task_type: str, func, args: dict[str, Any]) -> str:
+    """创建任务记录并启动后台线程执行。"""
+    task_id = _create_task(task_type, extra={"project_name": name})
+    args["task_id"] = task_id
+    try:
+        asyncio.create_task(asyncio.to_thread(func, args))
+    except RuntimeError:
+        import threading
+        threading.Thread(target=func, args=(args,), daemon=True).start()
+    return task_id
+
+
+@router.get("/projects/{name}/pipeline/task-status/{task_id}")
+async def get_task_status(name: str, task_id: str):
+    """通用异步任务状态查询。"""
+    task = _task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return {"success": True, "data": {
+        "task_id": task.get("task_id"), "task_type": task.get("task_type"),
+        "status": task.get("status"),
+        "progress_current": task.get("progress_current", 0),
+        "progress_total": task.get("progress_total", 0),
+        "current_item": task.get("current_item", ""),
+        "success_count": task.get("success_count", 0),
+        "failed_count": task.get("failed_count", 0),
+        "failed": task.get("failed", []),
+        "error": task.get("error"),
+    }, "error": None}
+
 # ── 辅助函数 ──────────────────────────────────────────────────────
 
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: int) -> dict[str, Any]:
@@ -407,8 +459,87 @@ async def generate_character_profiles(
 
 # ── 步骤5：角色图 ──────────────────────────────────────────────────
 
+def _run_character_images(args: dict[str, Any]) -> None:
+    """后台执行角色图生成。"""
+    task_id = args["task_id"]
+    try:
+        project_root = Path(args["project_root"])
+        name = args["project_name"]
+        character_dir = project_root / "assets" / "characters" / "base"
+
+        system_prompt = _load_prompt_text("prompts/character_image_prompt_system.txt")
+        cards = sorted([p for p in character_dir.glob("*.json") if p.is_file()])
+
+        target_names = [n.strip() for n in args.get("character_names", "").split(",") if n.strip()]
+        target_files = [f.strip() for f in args.get("character_files", "").split(",") if f.strip()]
+        if target_names or target_files:
+            allowed_files = set()
+            for item in target_files:
+                allowed_files.add(item if item.endswith(".json") else f"{item}.json")
+            cards = [c for c in cards if c.stem in target_names or c.name in allowed_files]
+
+        llm_client = _create_llm_client()
+        banana_key = get_image_config().api_key
+        success_count = 0
+        failed: list[str] = []
+
+        _task_store[task_id]["progress_total"] = len(cards)
+
+        for idx, card_path in enumerate(cards):
+            card_name = card_path.stem
+            # 跳过已有图片（且未重新生成过）
+            img_path = card_path.parent / f"{sanitize_filename(card_name)}.{args.get('image_ext', 'png').strip('.')}"
+            if img_path.exists() and not args.get("force_regenerate", False):
+                _task_store[task_id]["current_item"] = f"{card_name} (跳过，已存在)"
+                _task_store[task_id]["progress_current"] = idx + 1
+                success_count += 1
+                update_character_image(name, card_name, has_image=1)
+                continue
+
+            try:
+                _task_store[task_id]["current_item"] = f"{card_name} (生成提示词)"
+                character = read_json(card_path)
+                if not isinstance(character, dict):
+                    raise ValueError("角色卡内容不是 JSON 对象")
+                char_name = as_text(character.get("name")) or card_name
+
+                llm_payload = _llm_json(llm_client, args["llm_model"], system_prompt,
+                                         json.dumps(character, ensure_ascii=False))
+                prompt = as_text(llm_payload.get("prompt"))
+                if not prompt:
+                    prompt = build_character_description(character)
+
+                _task_store[task_id]["current_item"] = f"{char_name} (生图中)"
+                image_url = _request_image_url(banana_key, prompt, args["image_model"],
+                                               args.get("aspect_ratio", "3:4"),
+                                               args.get("image_size", "1K"),
+                                               args.get("timeout_sec", 120),
+                                               args.get("retries", 1))
+
+                file_name = f"{sanitize_filename(char_name)}.{args.get('image_ext', 'png').strip('.')}"
+                output_path = card_path.parent / file_name
+                download_file(image_url, output_path, timeout_sec=args.get("timeout_sec", 120))
+                update_character_image(name, char_name, has_image=1)
+                success_count += 1
+            except Exception as exc:
+                failed.append(f"{card_name}: {exc}")
+
+            _task_store[task_id]["progress_current"] = idx + 1
+            _task_store[task_id]["success_count"] = success_count
+            _task_store[task_id]["failed_count"] = len(failed)
+            _task_store[task_id]["failed"] = failed
+
+        _task_store[task_id]["status"] = "succeeded"
+        _task_store[task_id]["success_count"] = success_count
+        _task_store[task_id]["failed_count"] = len(failed)
+        _task_store[task_id]["failed"] = failed
+    except Exception as exc:
+        _task_store[task_id]["status"] = "failed"
+        _task_store[task_id]["error"] = str(exc)
+
+
 @router.post("/projects/{name}/pipeline/character-images")
-async def generate_character_images(
+async def start_character_images(
     name: str,
     character_names: str = "",
     character_files: str = "",
@@ -419,68 +550,26 @@ async def generate_character_images(
     image_ext: str = "png",
     timeout_sec: int = 120,
     retries: int = 1,
-    allow_partial: bool = False,
 ):
-    """步骤5：读取角色卡并通过 LLM + Nano Banana 生成角色图。"""
+    """步骤5：异步生成角色图。返回 task_id 用于轮询进度。"""
     project_root = get_project_path(name)
     character_dir = project_root / "assets" / "characters" / "base"
-
-    img_config = get_image_config()
-    banana_key = img_config.api_key
-    if not banana_key:
-        raise HTTPException(status_code=500, detail="未配置 IMAGE_API_KEY")
-
-    system_prompt = _load_prompt_text("prompts/character_image_prompt_system.txt")
-    cards = sorted([p for p in character_dir.glob("*.json") if p.is_file()])
-    if not cards:
+    if not character_dir.exists() or not list(character_dir.glob("*.json")):
         raise HTTPException(status_code=404, detail=f"未找到角色卡 JSON: {character_dir}")
 
-    # 过滤角色
-    target_names = [n.strip() for n in character_names.split(",") if n.strip()]
-    target_files = [f.strip() for f in character_files.split(",") if f.strip()]
-    if target_names or target_files:
-        allowed_files = set()
-        for item in target_files:
-            allowed_files.add(item if item.endswith(".json") else f"{item}.json")
-        cards = [c for c in cards if c.stem in target_names or c.name in allowed_files]
-        if not cards:
-            raise HTTPException(status_code=404, detail="未匹配到任何角色卡")
+    img_config = get_image_config()
+    if not img_config.api_key:
+        raise HTTPException(status_code=500, detail="未配置 IMAGE_API_KEY")
 
-    llm_client = _create_llm_client()
-    success_count = 0
-    failed: list[str] = []
-
-    for card_path in cards:
-        try:
-            character = read_json(card_path)
-            if not isinstance(character, dict):
-                raise ValueError("角色卡内容不是 JSON 对象")
-            name = as_text(character.get("name")) or card_path.stem
-
-            # LLM 生成生图提示词
-            llm_payload = _llm_json(llm_client, llm_model, system_prompt,
-                                     json.dumps(character, ensure_ascii=False))
-            prompt = as_text(llm_payload.get("prompt"))
-            if not prompt:
-                prompt = build_character_description(character)
-
-            # 生图
-            image_url = _request_image_url(banana_key, prompt, image_model,
-                                           aspect_ratio, image_size, timeout_sec, retries)
-
-            file_name = f"{sanitize_filename(name)}.{image_ext.strip('.')}"
-            output_path = card_path.parent / file_name
-            download_file(image_url, output_path, timeout_sec=timeout_sec)
-            # 更新 DB
-            update_character_image(name, name, has_image=1)
-            success_count += 1
-        except Exception as exc:
-            failed.append(f"{card_path.name}: {exc}")
-
-    result = {"success_count": success_count, "failed_count": len(failed), "failed": failed}
-    if failed and not allow_partial:
-        raise HTTPException(status_code=500, detail=f"部分角色生图失败: {failed}")
-    return {"success": True, "data": result, "error": None}
+    task_id = _start_async_task(name, "character-images", _run_character_images, {
+        "project_root": str(project_root),
+        "project_name": name,
+        "character_names": character_names, "character_files": character_files,
+        "llm_model": llm_model, "image_model": image_model,
+        "aspect_ratio": aspect_ratio, "image_size": image_size, "image_ext": image_ext,
+        "timeout_sec": timeout_sec, "retries": retries,
+    })
+    return {"success": True, "data": {"task_id": task_id, "status": "running"}, "error": None}
 
 
 # ── 步骤6：场景提示词 ─────────────────────────────────────────────
@@ -590,76 +679,72 @@ async def generate_scene_prompts(
 
 # ── 步骤7：场景图 ──────────────────────────────────────────────────
 
-@router.post("/projects/{name}/pipeline/scene-images")
-async def generate_scene_images(
-    name: str,
-    episode: int = 0,
-    scene_id: str = "",
-    image_model: str = _DEFAULT_IMAGE_MODEL,
-    aspect_ratio: str = "16:9",
-    image_size: str = "1K",
-    image_ext: str = "png",
-    timeout_sec: int = 150,
-    retries: int = 1,
-    allow_partial: bool = False,
-):
-    """步骤7：读取 scene_prompt.json 并生成场景背景图。"""
-    project_root = get_project_path(name)
-    analysis_root = project_root / "script_analysis"
-    output_root = project_root / "assets" / "scenes" / "base"
+def _run_scene_images(args: dict[str, Any]) -> None:
+    """后台执行场景图生成。"""
+    task_id = args["task_id"]
+    try:
+        project_root = Path(args["project_root"])
+        name = args["project_name"]
+        analysis_root = project_root / "script_analysis"
+        output_root = project_root / "assets" / "scenes" / "base"
+        banana_key = get_image_config().api_key
 
-    img_config = get_image_config()
-    banana_key = img_config.api_key
-    if not banana_key:
-        raise HTTPException(status_code=500, detail="未配置 IMAGE_API_KEY")
+        project_meta = read_json(analysis_root / "project_meta.json")
+        total_episodes = get_total_episodes(project_meta)
+        output_root.mkdir(parents=True, exist_ok=True)
 
-    project_meta_path = analysis_root / "project_meta.json"
-    if not project_meta_path.exists():
-        raise HTTPException(status_code=404, detail="缺少 project_meta.json")
-
-    project_meta = read_json(project_meta_path)
-    total_episodes = get_total_episodes(project_meta)
-    output_root.mkdir(parents=True, exist_ok=True)
-
-    success_count = 0
-    failed: list[str] = []
-
-    for ep_index in range(1, total_episodes + 1):
-        if episode and ep_index != episode:
-            continue
-        ep_dir = analysis_root / f"ep_{ep_index:02d}"
-        episode_meta_path = ep_dir / f"episodes_{ep_index:02d}.json"
-        scenes_path = ep_dir / "scenes.json"
-        if not episode_meta_path.exists() or not scenes_path.exists():
-            continue
-
-        episode_meta = read_json(episode_meta_path)
-        episode_id = as_text(episode_meta.get("episode_id")) or f"EP{ep_index:02d}"
-        scenes = read_json(scenes_path)
-        if not isinstance(scenes, list):
-            continue
-
-        for scene in scenes:
-            if not isinstance(scene, dict):
+        # 收集所有待处理的场景
+        tasks: list[dict[str, Any]] = []
+        for ep_index in range(1, total_episodes + 1):
+            if args.get("episode") and ep_index != args["episode"]:
                 continue
-            sid = as_text(scene.get("scene_id"))
-            if not sid or (scene_id and sid != scene_id):
+            ep_dir = analysis_root / f"ep_{ep_index:02d}"
+            scenes_path = ep_dir / "scenes.json"
+            if not scenes_path.exists():
+                continue
+            episode_meta = read_json(ep_dir / f"episodes_{ep_index:02d}.json") if (ep_dir / f"episodes_{ep_index:02d}.json").exists() else {}
+            episode_id = as_text(episode_meta.get("episode_id")) or f"EP{ep_index:02d}"
+            scenes = read_json(scenes_path)
+            if not isinstance(scenes, list):
+                continue
+            for scene in scenes:
+                if not isinstance(scene, dict):
+                    continue
+                sid = as_text(scene.get("scene_id"))
+                if not sid or (args.get("scene_id") and sid != args["scene_id"]):
+                    continue
+                tasks.append({"episode_id": episode_id, "scene_id": sid, "scene_meta": scene,
+                              "ep_dir": ep_dir, "ep_index": ep_index})
+
+        _task_store[task_id]["progress_total"] = len(tasks)
+        success_count = 0
+        failed: list[str] = []
+
+        for idx, t in enumerate(tasks):
+            scene_meta = t["scene_meta"]
+            episode_id = t["episode_id"]
+            sid = t["scene_id"]
+            ep_dir = t["ep_dir"]
+            label = f"{episode_id}-{sid}"
+
+            # 跳过已有图片
+            img_path = output_root / f"{episode_id}_{sid}.{args.get('image_ext', 'png').strip('.')}"
+            if img_path.exists() and not args.get("force_regenerate", False):
+                _task_store[task_id]["current_item"] = f"{label} (跳过，已存在)"
+                _task_store[task_id]["progress_current"] = idx + 1
+                success_count += 1
+                _update_scene_image_db(name, episode_id, sid)
                 continue
 
             scene_dir = ep_dir / f"scene_{sid}"
             prompt_path = scene_dir / "scene_prompt.json"
-            if prompt_path.exists():
-                prompt_data = read_json(prompt_path)
-                if not isinstance(prompt_data, dict):
-                    prompt_data = {}
-            else:
+            prompt_data = read_json(prompt_path) if prompt_path.exists() else {}
+            if not isinstance(prompt_data, dict):
                 prompt_data = {}
 
             scene_prompt = as_text(prompt_data.get("scene_prompt"))
             if not scene_prompt:
-                loc = as_text(scene.get("location")) or "城市街道"
-                tm = as_text(scene.get("time")) or "日外"
-                scene_prompt = f"{loc}，{tm}，{as_text(scene.get('description'))}"
+                scene_prompt = f"{as_text(scene_meta.get('location'))}，{as_text(scene_meta.get('time'))}，{as_text(scene_meta.get('description'))}"
 
             style_tags = normalize_style_tags(prompt_data.get("style_tags"))
             negative_prompt = as_text(prompt_data.get("negative_prompt"))
@@ -669,53 +754,99 @@ async def generate_scene_images(
             if negative_prompt:
                 parts.append("避免：" + negative_prompt)
             final_prompt = "。".join([p for p in parts if p])
-
-            # 安全过滤
             for src, dst in [("血迹", "磨损痕迹"), ("鲜血", "污渍"), ("诡异", "未知生物"),
                              ("追杀", "追逐"), ("尸体", "残留物"), ("战火纷飞", "紧张氛围"),
                              ("炮口对准", "重型设备陈列"), ("斩杀", "对抗"), ("压抑", "肃穆")]:
                 final_prompt = final_prompt.replace(src, dst)
 
             try:
-                image_url = _request_image_url(banana_key, final_prompt, image_model,
-                                               aspect_ratio, image_size, timeout_sec, retries)
-                file_name = f"{episode_id}_{sid}.{image_ext.strip('.')}"
-                output_path = output_root / file_name
-                download_file(image_url, output_path, timeout_sec=timeout_sec)
+                _task_store[task_id]["current_item"] = f"{label} (生图中)"
+                image_url = _request_image_url(banana_key, final_prompt, args["image_model"],
+                                               args.get("aspect_ratio", "16:9"),
+                                               args.get("image_size", "1K"),
+                                               args.get("timeout_sec", 150),
+                                               args.get("retries", 1))
+                output_path_img = output_root / f"{episode_id}_{sid}.{args.get('image_ext', 'png').strip('.')}"
+                download_file(image_url, output_path_img, timeout_sec=args.get("timeout_sec", 150))
                 _update_scene_image_db(name, episode_id, sid)
                 success_count += 1
             except Exception as exc:
                 err_text = str(exc).lower()
-                # 合规拦截降级
                 if "violate our policies" in err_text or "moderation" in err_text:
                     try:
-                        loc = as_text(scene.get("location")) or "城市街道"
-                        tm = as_text(scene.get("time")) or "日外"
+                        _task_store[task_id]["current_item"] = f"{label} (降级生图中)"
+                        loc = as_text(scene_meta.get("location")) or "城市街道"
+                        tm = as_text(scene_meta.get("time")) or "日外"
                         neutral = (f"{loc}，{tm}，无人环境场景，二次元动漫背景风格，赛璐璐质感，"
-                                    "高细节材质，建筑与街道空间关系清晰，色彩分层明确，干净画面，无角色主体。")
-                        image_url = _request_image_url(banana_key, neutral, image_model,
-                                                       aspect_ratio, image_size, timeout_sec, retries)
-                        file_name = f"{episode_id}_{sid}.{image_ext.strip('.')}"
-                        output_path = output_root / file_name
-                        download_file(image_url, output_path, timeout_sec=timeout_sec)
+                                   "高细节材质，建筑与街道空间关系清晰，无角色主体。")
+                        image_url = _request_image_url(banana_key, neutral, args["image_model"],
+                                                       args.get("aspect_ratio", "16:9"),
+                                                       args.get("image_size", "1K"),
+                                                       args.get("timeout_sec", 150),
+                                                       args.get("retries", 1))
+                        output_path_img = output_root / f"{episode_id}_{sid}.{args.get('image_ext', 'png').strip('.')}"
+                        download_file(image_url, output_path_img, timeout_sec=args.get("timeout_sec", 150))
                         _update_scene_image_db(name, episode_id, sid)
                         success_count += 1
+                        _task_store[task_id]["progress_current"] = idx + 1
+                        _task_store[task_id]["success_count"] = success_count
+                        _task_store[task_id]["failed_count"] = len(failed)
+                        _task_store[task_id]["failed"] = failed
                         continue
                     except Exception as retry_exc:
-                        failed.append(f"{episode_id}-{sid}: {retry_exc}")
+                        failed.append(f"{label}: {retry_exc}")
+                        _task_store[task_id]["progress_current"] = idx + 1
+                        _task_store[task_id]["failed_count"] = len(failed)
+                        _task_store[task_id]["failed"] = failed
                         continue
-                failed.append(f"{episode_id}-{sid}: {exc}")
+                failed.append(f"{label}: {exc}")
 
-    result = {"success_count": success_count, "failed_count": len(failed), "failed": failed}
-    if failed and not allow_partial:
-        raise HTTPException(status_code=500, detail=f"部分场景生图失败: {failed}")
-    return {"success": True, "data": result, "error": None}
+            _task_store[task_id]["progress_current"] = idx + 1
+            _task_store[task_id]["success_count"] = success_count
+            _task_store[task_id]["failed_count"] = len(failed)
+            _task_store[task_id]["failed"] = failed
+
+        _task_store[task_id]["status"] = "succeeded"
+        _task_store[task_id]["success_count"] = success_count
+        _task_store[task_id]["failed_count"] = len(failed)
+        _task_store[task_id]["failed"] = failed
+    except Exception as exc:
+        _task_store[task_id]["status"] = "failed"
+        _task_store[task_id]["error"] = str(exc)
+
+
+@router.post("/projects/{name}/pipeline/scene-images")
+async def start_scene_images(
+    name: str,
+    episode: int = 0,
+    scene_id: str = "",
+    image_model: str = _DEFAULT_IMAGE_MODEL,
+    aspect_ratio: str = "16:9",
+    image_size: str = "1K",
+    image_ext: str = "png",
+    timeout_sec: int = 150,
+    retries: int = 1,
+):
+    """步骤7：异步生成场景背景图。返回 task_id 用于轮询进度。"""
+    project_root = get_project_path(name)
+    analysis_root = project_root / "script_analysis"
+    if not (analysis_root / "project_meta.json").exists():
+        raise HTTPException(status_code=404, detail="缺少 project_meta.json，请先执行 analyze-script")
+    if not get_image_config().api_key:
+        raise HTTPException(status_code=500, detail="未配置 IMAGE_API_KEY")
+
+    task_id = _start_async_task(name, "scene-images", _run_scene_images, {
+        "project_root": str(project_root),
+        "project_name": name,
+        "episode": episode, "scene_id": scene_id,
+        "image_model": image_model, "aspect_ratio": aspect_ratio,
+        "image_size": image_size, "image_ext": image_ext,
+        "timeout_sec": timeout_sec, "retries": retries,
+    })
+    return {"success": True, "data": {"task_id": task_id, "status": "running"}, "error": None}
 
 
 # ── 步骤8：镜头视频（异步轮询）────────────────────────────────────
-
-# 内存中的视频任务状态（重启丢失，后续可持久化）
-_video_tasks: dict[str, dict[str, Any]] = {}
 
 
 def _create_ark_client(ark_api_key: str):
@@ -727,8 +858,10 @@ def _create_ark_client(ark_api_key: str):
     return Ark(base_url=video_config.base_url, api_key=ark_api_key)
 
 
-def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
+def _run_video_generation(args: dict[str, Any]) -> None:
     """后台执行视频生成（同步阻塞，在 thread 中运行）。"""
+    task_id = args["task_id"]
+    name = args.get("project_name", "")
     try:
         project_root = Path(args["project_root"])
         analysis_root = project_root / "script_analysis"
@@ -780,6 +913,8 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
 
                 previous_last_frame_url = ""
                 scene_image_path = project_root / "assets" / "scenes" / "base" / f"{episode_id}_{scene_id_val}.png"
+                if not scene_image_path.exists():
+                    scene_image_path = project_root / "assets" / "scenes" / "base" / f"{episode_id}_{scene_id_val}.jpg"
 
                 for shot in valid_shots:
                     shot_id = as_text(shot.get("shot_id"))
@@ -977,8 +1112,8 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
                         if time.time() - started > args["max_wait_sec"]:
                             raise RuntimeError("视频任务轮询超时")
                         # 更新进度
-                        _video_tasks[task_id]["current_shot"] = shot_id
-                        _video_tasks[task_id]["ark_status"] = status
+                        _task_store[task_id]["current_shot"] = shot_id
+                        _task_store[task_id]["ark_status"] = status
                         time.sleep(max(1, args["poll_interval"]))
 
                     if not video_url:
@@ -1000,16 +1135,14 @@ def _run_video_generation(task_id: str, args: dict[str, Any]) -> None:
 
                     success_count += 1
 
-        _video_tasks[task_id] = {
-            **args,
+        _task_store[task_id].update({
             "status": "succeeded",
             "success_count": success_count,
             "failed_count": len(failed),
             "failed": failed,
-        }
+        })
     except Exception as exc:
-        _video_tasks[task_id]["status"] = "failed"
-        _video_tasks[task_id]["error"] = str(exc)
+        _task_store[task_id].update({"status": "failed", "error": str(exc)})
 
 
 @router.post("/projects/{name}/pipeline/shot-videos")
@@ -1049,10 +1182,7 @@ async def start_shot_videos(
     script_text = _load_script_text(script_file)
     system_prompt = _load_prompt_text("prompts/shot_video_prompt_system.txt")
 
-    import uuid
-    task_id = str(uuid.uuid4())[:8]
-
-    task_args = {
+    task_id = _start_async_task(name, "shot-videos", _run_video_generation, {
         "project_root": str(project_root),
         "episode": episode, "scene_id": scene_id, "shot_id": shot_id,
         "script_text": script_text, "system_prompt": system_prompt,
@@ -1061,23 +1191,15 @@ async def start_shot_videos(
         "max_character_refs": max_character_refs,
         "disable_last_frame_chain": disable_last_frame_chain,
         "use_reference_video": use_reference_video,
-        "dry_run": dry_run, "ark_key": ark_key, "deepseek_key": deepseek_key,
-        "total_episodes": total_episodes,
-    }
-
-    _video_tasks[task_id] = {"status": "running", "current_shot": "", "ark_status": "",
-                              "success_count": 0, "failed_count": 0, "failed": []}
-
-    import asyncio
-    asyncio.create_task(asyncio.to_thread(_run_video_generation, task_id, task_args))
-
+        "dry_run": dry_run, "total_episodes": total_episodes,
+    })
     return {"success": True, "data": {"task_id": task_id, "status": "running"}, "error": None}
 
 
 @router.get("/projects/{name}/pipeline/video-status/{task_id}")
 async def get_video_status(name: str, task_id: str):
     """轮询视频生成任务状态。"""
-    task = _video_tasks.get(task_id)
+    task = _task_store.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
     return {"success": True, "data": {
