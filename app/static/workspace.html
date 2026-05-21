@@ -196,15 +196,18 @@ async function execStep1() {
   btnReset(btn);
 }
 
-function renderEpisodesResult(episodes) {
+async function renderEpisodesResult(episodes) {
   let html = '<h4 style="margin-top:16px">拆解结果</h4>';
-  episodes.forEach(ep => {
-    html += `<div class="card" style="margin-bottom:12px"><div class="card-header">${ep.episode_id} — ${ep.title||''} (${ep.scenes?.length||0} 场)</div><div class="card-body"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">`;
-    (ep.scenes||[]).forEach(sc => {
+  for (const ep of episodes) {
+    const epIdx = ep.index_num || parseInt((ep.episode_id||'').replace('EP','')) || 1;
+    const scRes = await $.projects.scenes(route.project, epIdx);
+    const scenes = scRes.data || [];
+    html += `<div class="card" style="margin-bottom:12px"><div class="card-header">${ep.episode_id} — ${ep.title||''} (${scenes.length} 场)</div><div class="card-body"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">`;
+    scenes.forEach(sc => {
       html += `<div class="scene-chip"><div class="sc-id">${sc.scene_id}</div><div class="sc-meta">${sc.location||''} · ${sc.time||''}</div><div class="sc-meta">${Array.isArray(sc.characters)?sc.characters.join('、'):sc.characters||''}</div></div>`;
     });
     html += '</div></div></div>';
-  });
+  }
   document.getElementById('step1Result').innerHTML = html;
 }
 
@@ -333,6 +336,9 @@ async function execStep3() {
 function renderStep4() { return `
   <h2>步骤 4：角色立绘图</h2>
   <p class="step-desc">根据角色卡生成二次元风格的 AI 角色立绘。（异步任务，可轮询进度）</p>
+  <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:12px">
+    <input type="checkbox" id="s4force"> 强制重新生成（覆盖已有角色图）
+  </label>
   <button class="btn btn-primary" id="btnStep4" onclick="execStep4()">生成角色图</button>
   <div id="step4Progress" style="margin-top:10px"></div>
   <div id="step4Result" style="margin-top:20px"></div>
@@ -361,7 +367,8 @@ async function setupStep4() {
 
 async function execStep4() {
   const btn = document.getElementById('btnStep4'); btnLoading(btn, '生成中...');
-  const res = await $.pipeline.run(route.project, 'character-images');
+  const force = document.getElementById('s4force')?.checked ? '&force_regenerate=true' : '';
+  const res = await $.pipeline.run(route.project, 'character-images', force ? force.substring(1) : '');
   if (res.success && res.data?.task_id) {
     activeTaskStep[4] = {taskId: res.data.task_id, btnId: 'btnStep4', progressId: 'step4Progress'};
     pollTask(res.data.task_id, 'btnStep4', 'step4Progress');
@@ -425,6 +432,9 @@ async function execStep5() {
 function renderStep6() { return `
   <h2>步骤 6：场景图</h2>
   <p class="step-desc">根据场景提示词生成二次元风格的场景背景图。（异步任务）</p>
+  <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-bottom:12px">
+    <input type="checkbox" id="s6force"> 强制重新生成（覆盖已有场景图）
+  </label>
   <div class="param-row">
     <div><label>集数筛选</label><input type="number" id="s6ep" value="0" min="0"></div>
     <div><label>场景筛选</label><input type="text" id="s6sc" placeholder="如 S01"></div>
@@ -456,7 +466,7 @@ async function setupStep6() {
 
 async function execStep6() {
   const btn = document.getElementById('btnStep6'); btnLoading(btn, '生成中...');
-  const q = new URLSearchParams({episode:document.getElementById('s6ep').value||'0', scene_id:document.getElementById('s6sc').value||''}).toString();
+  const q = new URLSearchParams({episode:document.getElementById('s6ep').value||'0', scene_id:document.getElementById('s6sc').value||'', force_regenerate: document.getElementById('s6force')?.checked||false}).toString();
   const res = await $.pipeline.run(route.project, 'scene-images', q);
   if (res.success && res.data?.task_id) {
     activeTaskStep[6] = {taskId: res.data.task_id, btnId: 'btnStep6', progressId: 'step6Progress'};

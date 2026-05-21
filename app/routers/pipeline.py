@@ -552,6 +552,7 @@ async def start_character_images(
     image_ext: str = "png",
     timeout_sec: int = 120,
     retries: int = 1,
+    force_regenerate: bool = False,
 ):
     """步骤5：异步生成角色图。返回 task_id 用于轮询进度。"""
     project_root = get_project_path(name)
@@ -570,6 +571,7 @@ async def start_character_images(
         "llm_model": llm_model, "image_model": image_model,
         "aspect_ratio": aspect_ratio, "image_size": image_size, "image_ext": image_ext,
         "timeout_sec": timeout_sec, "retries": retries,
+        "force_regenerate": force_regenerate,
     })
     return {"success": True, "data": {"task_id": task_id, "status": "running"}, "error": None}
 
@@ -830,6 +832,7 @@ async def start_scene_images(
     image_ext: str = "png",
     timeout_sec: int = 150,
     retries: int = 1,
+    force_regenerate: bool = False,
 ):
     """步骤7：异步生成场景背景图。返回 task_id 用于轮询进度。"""
     project_root = get_project_path(name)
@@ -846,6 +849,7 @@ async def start_scene_images(
         "image_model": image_model, "aspect_ratio": aspect_ratio,
         "image_size": image_size, "image_ext": image_ext,
         "timeout_sec": timeout_sec, "retries": retries,
+        "force_regenerate": force_regenerate,
     })
     return {"success": True, "data": {"task_id": task_id, "status": "running"}, "error": None}
 
