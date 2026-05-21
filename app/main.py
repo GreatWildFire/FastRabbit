@@ -39,8 +39,18 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    """返回前端单页。"""
-    index_path = static_dir / "index.html"
-    if index_path.exists():
-        return index_path.read_text(encoding="utf-8")
-    return "<html><body><h1>FastRabbit API</h1><p>访问 <a href='/docs'>/docs</a> 查看 API 文档。</p></body></html>"
+    """返回首页。"""
+    return _serve_html("index.html")
+
+
+@app.get("/workspace.html", response_class=HTMLResponse)
+async def workspace():
+    """返回项目工作台页面。"""
+    return _serve_html("workspace.html")
+
+
+def _serve_html(filename: str) -> str:
+    path = static_dir / filename
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return f"<html><body><h1>404</h1><p>{filename} not found</p></body></html>"

@@ -261,7 +261,7 @@ async def analyze_script(
     init_db()
     if not project_exists(name):
         db_create_project(name, script_content=script_text)
-    update_project(name, total_episodes=max_episode_num, status="analyzed")
+    update_project(name, total_episodes=max_episode_num, status="analyzed", current_step=1)
     upsert_episodes(name, [
         {"episode_id": f"EP{num:02d}", "title": f"第{num}集", "index_num": num}
         for num in range(1, max_episode_num + 1)
@@ -395,6 +395,7 @@ async def generate_scene_shots(
                 if sc_db_id:
                     upsert_shots(sc_db_id, normalized_shots)
 
+    update_project(name, current_step=2)
     return {"success": True, "data": {"written_files": written}, "error": None}
 
 
@@ -452,7 +453,7 @@ async def generate_character_profiles(
     # 同步到 DB
     init_db()
     upsert_characters(name, characters)
-    update_project(name, status="characters_created")
+    update_project(name, status="characters_created", current_step=3)
 
     return {"success": True, "data": {"characters": characters, "written_files": written}, "error": None}
 
@@ -533,6 +534,7 @@ def _run_character_images(args: dict[str, Any]) -> None:
         _task_store[task_id]["success_count"] = success_count
         _task_store[task_id]["failed_count"] = len(failed)
         _task_store[task_id]["failed"] = failed
+        update_project(name, current_step=4)
     except Exception as exc:
         _task_store[task_id]["status"] = "failed"
         _task_store[task_id]["error"] = str(exc)
@@ -674,6 +676,7 @@ async def generate_scene_prompts(
                 if sc_db_id:
                     update_scene(sc_db_id, scene_prompt=scene_prompt)
 
+    update_project(name, current_step=5)
     return {"success": True, "data": {"written_files": written}, "error": None}
 
 
@@ -810,6 +813,7 @@ def _run_scene_images(args: dict[str, Any]) -> None:
         _task_store[task_id]["success_count"] = success_count
         _task_store[task_id]["failed_count"] = len(failed)
         _task_store[task_id]["failed"] = failed
+        update_project(name, current_step=6)
     except Exception as exc:
         _task_store[task_id]["status"] = "failed"
         _task_store[task_id]["error"] = str(exc)
@@ -1141,6 +1145,7 @@ def _run_video_generation(args: dict[str, Any]) -> None:
             "failed_count": len(failed),
             "failed": failed,
         })
+        update_project(name, current_step=7)
     except Exception as exc:
         _task_store[task_id].update({"status": "failed", "error": str(exc)})
 

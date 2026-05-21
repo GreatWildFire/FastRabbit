@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS projects (
     script_content TEXT DEFAULT '',
     script_filename TEXT DEFAULT '',
     total_episodes INTEGER DEFAULT 1,
+    current_step INTEGER DEFAULT 1,
     status TEXT DEFAULT 'created',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -112,6 +113,11 @@ def _migrate(db: sqlite3.Connection) -> None:
     for col_name, col_def in new_cols:
         if col_name not in existing:
             db.execute(f"ALTER TABLE characters ADD COLUMN {col_name} {col_def}")
+
+    # 为 projects 表添加 current_step 字段
+    proj_cols = {r[1] for r in db.execute("PRAGMA table_info(projects)").fetchall()}
+    if "current_step" not in proj_cols:
+        db.execute("ALTER TABLE projects ADD COLUMN current_step INTEGER DEFAULT 1")
 
 
 def init_db() -> None:
