@@ -86,11 +86,12 @@ async function loadWorkspace() {
 function renderStepIndicator(current) {
   const names = ['','剧本','镜头','角色卡','角色图','提示词','场景图','视频'];
   let html = '';
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 8; i++) {
     const cls = i < current ? 'done' : (i === current ? 'current' : '');
-    html += `<span class="step-item" onclick="navigateTo(${i})" title="${STEP_NAMES[i]}">
+    const label = i === 8 ? '完成' : names[i];
+    html += `<span class="step-item" onclick="navigateTo(${i})" title="${label}">
       <span class="step-dot-sm ${cls}"></span></span>`;
-    if (i < 7) html += `<span class="step-line ${i < current ? 'done' : ''}"></span>`;
+    if (i < 8) html += `<span class="step-line ${i < current ? 'done' : ''}"></span>`;
   }
   document.getElementById('stepIndicator').innerHTML = html;
 }
@@ -105,8 +106,13 @@ function renderFooter(step) {
   const footer = document.getElementById('stepFooter');
   footer.style.display = 'flex';
   document.getElementById('btnPrev').style.visibility = step > 1 ? 'visible' : 'hidden';
-  document.getElementById('btnNext').style.display = step < 7 ? '' : 'none';
-  document.getElementById('stepLabel').textContent = `步骤 ${step} / 7 — ${STEP_NAMES[step]||''}`;
+  if (step >= 8) {
+    document.getElementById('btnNext').style.display = 'none';
+  } else {
+    document.getElementById('btnNext').style.display = '';
+    document.getElementById('btnNext').textContent = step === 7 ? '完成 ✓' : '下一步 →';
+  }
+  document.getElementById('stepLabel').textContent = `步骤 ${step} / 8 — ${step===8?'完成':STEP_NAMES[step]||''}`;
 
   document.getElementById('btnPrev').onclick = () => navigateTo(step-1);
   document.getElementById('btnNext').onclick = () => navigateTo(step+1);
@@ -123,6 +129,7 @@ function renderStep(step) {
     case 5: el.innerHTML = renderStep5(); setupStep5(); break;
     case 6: el.innerHTML = renderStep6(); setupStep6(); break;
     case 7: el.innerHTML = renderStep7(); setupStep7(); break;
+    case 8: el.innerHTML = renderStep8(); setupStep8(); break;
     default: el.innerHTML = '<div class="alert alert-warn">未知步骤</div>';
   }
 }
@@ -173,7 +180,7 @@ async function saveScriptEditor() {
 
 async function execStep1() {
   const btn = document.getElementById('btnStep1'); const msg = document.getElementById('step1Msg');
-  btn.disabled = true; msg.textContent = '正在拆解...';
+  btnLoading(btn, '拆解中...'); msg.textContent = '';
   const res = await $.pipeline.run(route.project, 'analyze-script');
   if (res.success) {
     msg.textContent = '✓ 拆解完成'; msg.style.color = 'var(--teal)';
@@ -183,7 +190,7 @@ async function execStep1() {
   } else {
     msg.textContent = '✗ 失败: ' + (res.error||res.detail); msg.style.color = 'var(--rose)';
   }
-  btn.disabled = false;
+  btnReset(btn);
 }
 
 function renderEpisodesResult(episodes) {
@@ -218,14 +225,20 @@ async function setupStep2() {
     if (eps.data?.length) {
       let html = '';
       for (const ep of eps.data) {
-        const scenes = await $.projects.scenes(route.project, ep.index_num || parseInt(ep.episode_id?.replace('EP','')) || 1);
+        const epIdx = ep.index_num || parseInt((ep.episode_id||'').replace('EP','')) || 1;
+        const scenes = await $.projects.scenes(route.project, epIdx);
         if (scenes.data?.length) {
           for (const sc of scenes.data) {
-            const shots = await $.projects.shots(route.project, ep.index_num||1, sc.scene_id);
+            const shots = await $.projects.shots(route.project, epIdx, sc.scene_id);
             if (shots.data?.length) {
               html += `<div class="card" style="margin-bottom:10px"><div class="card-header">${ep.episode_id} ${sc.scene_id} — ${sc.location||''} (${shots.data.length}镜)</div><div class="card-body">`;
               shots.data.forEach(sh => {
-                html += `<span class="shot-tag">${sh.shot_id} ${sh.type||''}</span>`;
+                html += `<div style="margin-bottom:8px;padding:8px 12px;background:var(--bg-elevated);border-radius:var(--radius-sm)">
+                  <span class="shot-tag">${sh.shot_id}</span>
+                  <span class="shot-tag">${sh.type||'中景'}</span>
+                  <span style="font-size:11px;color:var(--text-muted)">${(sh.characters||[]).join?.('、')||''}</span>
+                  <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${sh.action||''}</div>
+                </div>`;
               });
               html += '</div></div>';
             }
@@ -251,7 +264,7 @@ async function execStep2() {
   } else {
     msg.textContent = '✗ 失败: '+(res.error||res.detail); msg.style.color = 'var(--rose)';
   }
-  btn.disabled = false;
+  btnReset(btn);
 }
 
 // ═══════════════════ 步骤3：角色设定 ═══════════════════
@@ -273,21 +286,30 @@ async function setupStep3() {
 
 function renderCharacters(chars) {
   let html = '<h4 style="margin-top:16px">角色列表</h4><div class="gallery-grid">';
-  chars.forEach(c => {
-    const details = [];
-    if (c.hairstyle && c.hairstyle !== '待补充') details.push(`💇 ${c.hairstyle}`);
-    if (c.clothing && c.clothing !== '待补充') details.push(`👔 ${c.clothing}`);
-    if (c.face && c.face !== '待补充') details.push(`👤 ${c.face}`);
+  chars.forEach((c, i) => {
+    const fields = [
+      ['💇 发型', c.hairstyle], ['👤 面部', c.face], ['👔 服装', c.clothing],
+      ['💍 配饰', c.accessories], ['📐 体型', c.build], ['😶 表情', c.expression]
+    ].filter(([,v]) => v && v !== '待补充');
+
     html += `<div class="gallery-card">
-      ${c.has_image ? `<img src="${c.image_url}" style="height:220px" alt="${c.name}">` : `<div class="card-img-placeholder" style="height:220px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;color:var(--text-muted)">无图片</div>`}
+      ${c.has_image ? `<img src="${c.image_url}" style="height:220px" alt="${c.name}">` : `<div style="height:220px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;color:var(--text-muted)">无图片</div>`}
       <div class="card-body">
         <div class="card-title">${c.name} <small style="color:var(--text-muted)">${c.gender||''} ${c.age||''}岁</small></div>
-        ${details.map(d => `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${d}</div>`).join('')}
+        ${fields.slice(0,2).map(([l,v]) => `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${l}: ${v.substring(0,40)}${v.length>40?'...':''}</div>`).join('')}
+        ${fields.length > 2 ? `<button onclick="toggleCharDetail(${i})" style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:2px 0;margin-top:4px">查看完整视觉描述 ▼</button>
+        <div id="charDetail${i}" style="display:none;margin-top:4px">${fields.map(([l,v]) => `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${l}: ${v}</div>`).join('')}</div>` : ''}
       </div>
     </div>`;
   });
   html += '</div>';
   document.getElementById('step3Result').innerHTML = html;
+}
+
+function toggleCharDetail(i) {
+  const el = document.getElementById('charDetail'+i);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 async function execStep3() {
@@ -301,7 +323,7 @@ async function execStep3() {
   } else {
     msg.textContent = '✗ 失败: '+(res.error||res.detail); msg.style.color = 'var(--rose)';
   }
-  btn.disabled = false;
+  btnReset(btn);
 }
 
 // ═══════════════════ 步骤4：角色立绘图 ═══════════════════
@@ -329,13 +351,13 @@ async function setupStep4() {
 }
 
 async function execStep4() {
-  const btn = document.getElementById('btnStep4'); btn.disabled = true;
+  const btn = document.getElementById('btnStep4'); btnLoading(btn, '生成中...');
   const res = await $.pipeline.run(route.project, 'character-images');
   if (res.success && res.data?.task_id) {
     pollTask(res.data.task_id, 'btnStep4', 'step4Progress');
   } else {
     document.getElementById('step4Progress').innerHTML = `<span class="alert alert-err">失败: ${res.error||res.detail}</span>`;
-    btn.disabled = false;
+    btnReset(btn);
   }
 }
 
@@ -352,7 +374,33 @@ function renderStep5() { return `
   <div id="step5Result" style="margin-top:20px"></div>
 `; }
 
-async function setupStep5() { /* 场景提示词通过 file API 访问 */ }
+async function setupStep5() {
+  // 加载已有场景提示词
+  const eps = await $.projects.episodes(route.project);
+  if (!eps.data?.length) return;
+  let html = '';
+  for (const ep of eps.data) {
+    const idx = ep.index_num || parseInt((ep.episode_id||'').replace('EP','')) || 1;
+    const scenes = await $.projects.scenes(route.project, idx);
+    if (!scenes.data?.length) continue;
+    for (const sc of scenes.data) {
+      try {
+        const resp = await fetch(`${API}/projects/${route.project}/files/script_analysis/ep_${String(idx).padStart(2,'0')}/scene_${sc.scene_id}/scene_prompt.json`);
+        if (!resp.ok) continue;
+        const pd = await resp.json();
+        if (!pd.scene_prompt) continue;
+        html += `<div class="card" style="margin-bottom:10px"><div class="card-header">${ep.episode_id} ${sc.scene_id} — ${sc.location||''}</div><div class="card-body">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">正向提示词</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.6">${pd.scene_prompt}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">负向提示词</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">${pd.negative_prompt||'无'}</div>
+          ${pd.style_tags?.length ? `<div style="display:flex;gap:4px">${pd.style_tags.map(t=>`<span class="shot-tag">${t}</span>`).join('')}</div>` : ''}
+        </div></div>`;
+      } catch(e) {}
+    }
+  }
+  if (html) document.getElementById('step5Result').innerHTML = '<h4 style="margin-top:16px">已有场景提示词</h4>'+html;
+}
 async function execStep5() {
   const btn = document.getElementById('btnStep5'); const msg = document.getElementById('step5Msg');
   btn.disabled = true; msg.textContent = '生成中...';
@@ -360,7 +408,7 @@ async function execStep5() {
   const res = await $.pipeline.run(route.project, 'scene-prompts', q);
   if (res.success) { msg.textContent = '✓ 完成'; msg.style.color = 'var(--teal)'; }
   else { msg.textContent = '✗ 失败: '+(res.error||res.detail); msg.style.color = 'var(--rose)'; }
-  btn.disabled = false;
+  btnReset(btn);
 }
 
 // ═══════════════════ 步骤6：场景图 ═══════════════════
@@ -392,14 +440,14 @@ async function setupStep6() {
 }
 
 async function execStep6() {
-  const btn = document.getElementById('btnStep6'); btn.disabled = true;
+  const btn = document.getElementById('btnStep6'); btnLoading(btn, '生成中...');
   const q = new URLSearchParams({episode:document.getElementById('s6ep').value||'0', scene_id:document.getElementById('s6sc').value||''}).toString();
   const res = await $.pipeline.run(route.project, 'scene-images', q);
   if (res.success && res.data?.task_id) {
     pollTask(res.data.task_id, 'btnStep6', 'step6Progress');
   } else {
     document.getElementById('step6Progress').innerHTML = `<span class="alert alert-err">失败: ${res.error||res.detail}</span>`;
-    btn.disabled = false;
+    btnReset(btn);
   }
 }
 
@@ -440,7 +488,7 @@ async function setupStep7() {
 }
 
 async function execStep7() {
-  const btn = document.getElementById('btnStep7'); btn.disabled = true;
+  const btn = document.getElementById('btnStep7'); btnLoading(btn, '提交中...');
   const q = new URLSearchParams({
     episode: document.getElementById('s7ep').value||'0',
     scene_id: document.getElementById('s7sc').value||'',
@@ -452,9 +500,51 @@ async function execStep7() {
     pollTask(res.data.task_id, 'btnStep7', 'step7Progress');
   } else {
     document.getElementById('step7Progress').innerHTML = `<span class="alert alert-err">失败: ${res.error||res.detail}</span>`;
-    btn.disabled = false;
+    btnReset(btn);
   }
 }
+
+// ═══════════════════ 步骤8：完成 ═══════════════════
+function renderStep8() { return `
+  <h2>🎬 项目完成</h2>
+  <p class="step-desc">所有管线步骤已完成。以下是项目全貌摘要。</p>
+  <div id="step8Summary" style="margin-top:20px"><div class="spinner"></div> 加载中...</div>
+`; }
+
+async function setupStep8() {
+  const proj = await $.projects.get(route.project);
+  if (!proj.success) return;
+  const d = proj.data;
+  const chars = await $.projects.assets.characters(route.project);
+  const scenes = await $.projects.assets.scenes(route.project);
+  const shots = await $.projects.assets.shots(route.project);
+  const charImgs = (chars.data||[]).filter(c=>c.has_image).length;
+  const sceneImgs = (scenes.data||[]).length;
+  const shotVids = (shots.data||[]).filter(s=>s.has_video).length;
+
+  document.getElementById('step8Summary').innerHTML = `
+    <div class="stat-cards" style="margin-bottom:20px">
+      <div class="stat-card card-episodes"><div class="stat-icon">▣</div><div class="stat-label">总集数</div><div class="stat-value">${d.total_episodes||0}</div></div>
+      <div class="stat-card card-characters"><div class="stat-icon">●</div><div class="stat-label">角色</div><div class="stat-value">${d.character_count||0}</div></div>
+      <div class="stat-card card-scenes"><div class="stat-icon">◈</div><div class="stat-label">场景图</div><div class="stat-value">${sceneImgs}</div></div>
+      <div class="stat-card card-shots"><div class="stat-icon">▶</div><div class="stat-label">视频</div><div class="stat-value">${shotVids}</div></div>
+    </div>
+    <div class="card" style="margin-bottom:12px"><div class="card-header">项目信息</div><div class="card-body">
+      <p><strong>名称：</strong>${d.name}</p>
+      <p><strong>状态：</strong>${d.status||'-'}</p>
+      <p><strong>集数：</strong>${d.total_episodes||0} 集 / ${d.episode_count||0} 已分析</p>
+      <p><strong>角色：</strong>${d.character_count||0} 角色 / ${charImgs} 已生图</p>
+      <p><strong>场景图：</strong>${sceneImgs} 张</p>
+      <p><strong>镜头视频：</strong>${shotVids} 个 / ${(shots.data||[]).length} 个镜头</p>
+      ${d.created_at ? `<p style="color:var(--text-muted);font-size:12px">创建于 ${d.created_at}</p>` : ''}
+    </div></div>
+    <a href="/" class="btn btn-primary" style="text-decoration:none">返回首页</a>
+  `;
+}
+
+// ── 按钮 loading 态 ──
+function btnLoading(btn, text) { btn.disabled = true; btn.dataset.orig = btn.textContent; btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px"></span> ${text}`; }
+function btnReset(btn) { btnReset(btn); btn.textContent = btn.dataset.orig || btn.textContent; }
 
 // ═══════════════════ 通用异步轮询 ═══════════════════
 function pollTask(taskId, btnId, progressId) {
@@ -467,12 +557,20 @@ function pollTask(taskId, btnId, progressId) {
     if (t.status === 'succeeded') {
       clearInterval(timer); taskTimers.delete(taskId);
       pg.innerHTML = `<div class="alert alert-info">✓ 完成！成功 ${t.success_count}，失败 ${t.failed_count}</div>`;
-      document.getElementById(btnId).disabled = false;
-      loadWorkspace(); // 刷新数据
+      const btn = document.getElementById(btnId); btnReset(btn);
+      // 自动刷新当前步骤数据和项目信息
+      const stepNames = ['','','','','','',''];
+      const currentStep = route.step || 0;
+      if (currentStep === 4) setupStep4();
+      else if (currentStep === 6) setupStep6();
+      else if (currentStep === 7) setupStep7();
+      // 刷新项目数据以更新 current_step
+      const proj = await $.projects.get(route.project);
+      if (proj.success) { projectData = proj.data; renderStepIndicator(route.step || projectData.current_step || 1); }
     } else if (t.status === 'failed') {
       clearInterval(timer); taskTimers.delete(taskId);
       pg.innerHTML = `<div class="alert alert-err">✗ 失败: ${t.error}</div>`;
-      document.getElementById(btnId).disabled = false;
+      btnReset(document.getElementById(btnId));
     } else {
       const pct = t.progress_total > 0 ? Math.round(t.progress_current/t.progress_total*100) : 0;
       pg.innerHTML = `<div style="display:flex;align-items:center;gap:10px"><div class="spinner"></div><span style="font-size:12px;color:var(--text-secondary)">${t.current_item||t.status} · ${pct}% (${t.progress_current}/${t.progress_total})</span></div><div class="progress" style="margin-top:6px"><div class="progress-bar" style="width:${pct}%"></div></div>`;

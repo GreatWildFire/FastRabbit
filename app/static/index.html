@@ -71,7 +71,8 @@ async function loadProjects() {
       const dots = Array.from({length:8}, (_,i) =>
         `<span class="dot${i<step?' done':''}${i===step-1?' current':''}"></span>`).join('');
       const coverImg = ''; // 从项目资产中加载封面（下次优化）
-      return `<div class="project-card" onclick="openProject('${p.name}')">
+      return `<div class="project-card" onclick="openProject('${p.name}')" style="position:relative">
+        <button class="btn-card-del" onclick="event.stopPropagation();deleteProject('${p.name}')" title="删除项目">×</button>
         <div class="card-cover">
           ${coverImg ? `<img src="${coverImg}" alt="">` : `<span class="cover-placeholder">▶</span>`}
         </div>
@@ -87,14 +88,23 @@ async function loadProjects() {
       </div>`;
     }).join('');
 
-    // 加载封面图（异步，不阻塞卡片渲染）
-    projects.forEach(async p => {
+    // 加载封面图（场景图优先，回退到角色图）
+    projects.forEach(async (p, pi) => {
       try {
+        let imgUrl = null;
         const scenes = await $.projects.assets.scenes(p.name);
-        if (scenes.data && scenes.data.length) {
-          const card = grid.children[projects.indexOf(p)];
+        if (scenes.data?.length) imgUrl = scenes.data[0].image_url;
+        if (!imgUrl) {
+          const chars = await $.projects.assets.characters(p.name);
+          if (chars.data?.length) {
+            const withImg = chars.data.find(c => c.has_image);
+            if (withImg) imgUrl = withImg.image_url;
+          }
+        }
+        if (imgUrl) {
+          const card = grid.children[pi];
           const cover = card?.querySelector('.card-cover');
-          if (cover) cover.innerHTML = `<img src="${scenes.data[0].image_url}" alt="">`;
+          if (cover) cover.innerHTML = `<img src="${imgUrl}" alt="">`;
         }
       } catch(e) {}
     });
@@ -129,6 +139,14 @@ async function createProject() {
     alert('创建失败: ' + (res.error || res.detail));
   }
   btn.disabled = false; btn.textContent = '创建';
+}
+
+// ── 删除项目 ──
+async function deleteProject(name) {
+  if (!confirm(`确定删除「${name}」吗？此操作仅删除数据库记录，文件保留在磁盘。`)) return;
+  const res = await $.projects.del(name);
+  if (res.success) loadProjects();
+  else alert('删除失败: ' + (res.error||res.detail));
 }
 
 // ── 打开项目工作台 ──
